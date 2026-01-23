@@ -10,7 +10,7 @@ use miette::{IntoDiagnostic, Result};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
-use texide_core::{LintResult, Linter, LinterConfig, Severity};
+use texide_core::{apply_fixes_to_file, LintResult, Linter, LinterConfig, Severity};
 
 /// Texide - High-performance natural language linter
 #[derive(Parser)]
@@ -48,6 +48,10 @@ enum Commands {
         /// Auto-fix errors
         #[arg(long)]
         fix: bool,
+
+        /// Preview fixes without applying them
+        #[arg(long, requires = "fix")]
+        dry_run: bool,
     },
 
     /// Initialize configuration
@@ -106,7 +110,8 @@ fn run(cli: Cli) -> Result<bool> {
             ref patterns,
             ref format,
             fix,
-        } => run_lint(&cli, patterns, format, fix),
+            dry_run,
+        } => run_lint(&cli, patterns, format, fix, dry_run),
         Commands::Init { force } => {
             run_init(force)?;
             Ok(false)
@@ -122,7 +127,13 @@ fn run(cli: Cli) -> Result<bool> {
     }
 }
 
-fn run_lint(cli: &Cli, patterns: &[String], format: &str, _fix: bool) -> Result<bool> {
+fn run_lint(
+    cli: &Cli,
+    patterns: &[String],
+    format: &str,
+    fix: bool,
+    dry_run: bool,
+) -> Result<bool> {
     // Load configuration
     let config = if let Some(ref path) = cli.config {
         LinterConfig::from_file(path).into_diagnostic()?
@@ -136,6 +147,24 @@ fn run_lint(cli: &Cli, patterns: &[String], format: &str, _fix: bool) -> Result<
 
     // Run linting
     let results = linter.lint_patterns(patterns).into_diagnostic()?;
+
+    // Apply fixes if requested
+    if fix {
+        let fix_summary = apply_fixes(&results, dry_run)?;
+        output_fix_summary(&fix_summary, dry_run);
+
+        if dry_run {
+            // In dry-run mode, still output diagnostics
+            let has_errors = output_results(&results, format)?;
+            return Ok(has_errors);
+        }
+
+        // After fixing, return based on whether there were unfixable errors
+        let unfixable_errors = results
+            .iter()
+            .any(|r| r.diagnostics.iter().any(|d| d.fix.is_none()));
+        return Ok(unfixable_errors);
+    }
 
     // Output results
     let has_errors = output_results(&results, format)?;
@@ -368,4 +397,85 @@ fn run_add_rule(path: &Path) -> Result<()> {
     info!("Add the rule to your .texide.json to enable it");
 
     Ok(())
+}
+
+/// Summary of applied fixes.
+struct FixSummary {
+    total_fixes: usize,
+    files_fixed: usize,
+    fixes_by_file: Vec<(PathBuf, usize)>,
+}
+
+/// Applies fixes to all files with fixable diagnostics.
+fn apply_fixes(results: &[LintResult], dry_run: bool) -> Result<FixSummary> {
+    let mut total_fixes = 0;
+    let mut files_fixed = 0;
+    let mut fixes_by_file = Vec::new();
+
+    for result in results {
+        // Count fixable diagnostics
+        let fixable_count = result
+            .diagnostics
+            .iter()
+            .filter(|d| d.fix.is_some())
+            .count();
+
+        if fixable_count == 0 {
+            continue;
+        }
+
+        if dry_run {
+            // In dry-run mode, just count the fixes
+            fixes_by_file.push((result.path.clone(), fixable_count));
+            total_fixes += fixable_count;
+            files_fixed += 1;
+        } else {
+            // Actually apply the fixes
+            match apply_fixes_to_file(&result.path, &result.diagnostics) {
+                Ok(fixer_result) => {
+                    if fixer_result.modified {
+                        fixes_by_file.push((result.path.clone(), fixer_result.fixes_applied));
+                        total_fixes += fixer_result.fixes_applied;
+                        files_fixed += 1;
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to fix {}: {}", result.path.display(), e);
+                }
+            }
+        }
+    }
+
+    Ok(FixSummary {
+        total_fixes,
+        files_fixed,
+        fixes_by_file,
+    })
+}
+
+/// Outputs the fix summary.
+fn output_fix_summary(summary: &FixSummary, dry_run: bool) {
+    if summary.total_fixes == 0 {
+        println!("No fixable issues found.");
+        return;
+    }
+
+    if dry_run {
+        println!(
+            "\nWould fix {} issues in {} files:",
+            summary.total_fixes, summary.files_fixed
+        );
+        for (path, count) in &summary.fixes_by_file {
+            println!("  {}: {} fixes", path.display(), count);
+        }
+        println!("\nRun without --dry-run to apply fixes.");
+    } else {
+        println!(
+            "\nFixed {} issues in {} files:",
+            summary.total_fixes, summary.files_fixed
+        );
+        for (path, count) in &summary.fixes_by_file {
+            println!("  {}: {} fixes", path.display(), count);
+        }
+    }
 }
