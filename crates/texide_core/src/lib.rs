@@ -1,0 +1,36 @@
+//! # texide_core
+//!
+//! Core linter engine for Texide.
+//!
+//! This crate provides:
+//! - The main `Linter` orchestrator
+//! - Configuration loading
+//! - File discovery and filtering
+//! - Parallel processing
+//!
+//! ## Example
+//!
+//! ```rust,ignore
+//! use texide_core::{Linter, LinterConfig};
+//!
+//! let config = LinterConfig::from_file(".texide.json")?;
+//! let linter = Linter::new(config)?;
+//!
+//! let results = linter.lint_files(&["src/**/*.md"])?;
+//! for result in results {
+//!     println!("{}: {} issues", result.path.display(), result.diagnostics.len());
+//! }
+//! ```
+
+mod config;
+mod error;
+mod linter;
+mod result;
+
+pub use config::LinterConfig;
+pub use error::LinterError;
+pub use linter::Linter;
+pub use result::LintResult;
+
+// Re-export commonly used types
+pub use texide_plugin::{Diagnostic, Fix, Severity};
