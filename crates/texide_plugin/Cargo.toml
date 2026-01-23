@@ -24,3 +24,8 @@ extism = { workspace = true, optional = true }
 
 # Browser/WASM environment (pure Rust interpreter)
 wasmi = { workspace = true, optional = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+rstest = { workspace = true }
+insta = { workspace = true }

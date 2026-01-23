@@ -73,3 +73,12 @@ wasm-bindgen = "0.2"
 serde-wasm-bindgen = "0.6"
 console_error_panic_hook = "0.1"
 js-sys = "0.3"
+
+# Testing
+pretty_assertions = "1.4"
+rstest = "0.24"
+insta = { version = "1.42", features = ["json", "redactions"] }
+tempfile = "3.14"
+assert_fs = "1.1"
+assert_cmd = "2.0"
+predicates = "3.1"

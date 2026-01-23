@@ -75,3 +75,11 @@ texide_wasm         # Browser WASM bindings
 Rules implement two functions:
 - `get_manifest()` → Returns rule metadata JSON
 - `lint(ast_json, context, source, config)` → Returns diagnostics JSON
+
+## TDD Workflow
+
+1. **Test behavior, not implementation** - Verify observable outcomes from the user's perspective
+2. **Red-Green-Refactor** - Write failing test first, make it pass, then refactor
+3. **Descriptive test names** - Use pattern: `<action>_<condition>_<expected_result>`
+
+See [docs/TDD.md](docs/TDD.md) for detailed guidelines.
