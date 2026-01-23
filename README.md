@@ -3,6 +3,16 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-blue.svg)](https://www.rust-lang.org)
 
+# Texide
+
+> [!WARNING]
+> **Research-only / WIP (Work In Progress)**
+>
+> This project is currently in early research & development stage.
+> APIs and configuration formats may change without notice. Not ready for production use.
+>
+> 現在、研究開発段階のプロジェクトです。実用段階ではありません。
+
 > A high-performance natural language linter written in Rust, inspired by [textlint](https://textlint.github.io/).
 
 ## Goals
