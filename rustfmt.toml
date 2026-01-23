@@ -1,0 +1,22 @@
+# rustfmt configuration for texide
+# https://rust-lang.github.io/rustfmt/
+
+edition = "2024"
+
+# Import grouping and formatting
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+
+# Line width
+max_width = 100
+use_small_heuristics = "Default"
+
+# Comments
+wrap_comments = false
+normalize_comments = false
+
+# Misc
+newline_style = "Unix"
+use_field_init_shorthand = true
+use_try_shorthand = true

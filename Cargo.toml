@@ -1,0 +1,75 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/texide_ast",
+    "crates/texide_parser",
+    "crates/texide_plugin",
+    "crates/texide_cache",
+    "crates/texide_core",
+    "crates/texide_cli",
+    "crates/texide_lsp",
+    "crates/texide_wasm",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Tomoya Hayakawa <simorgh3196@gmail.com>"]
+license = "MIT"
+homepage = "https://github.com/simorgh3196/texide"
+repository = "https://github.com/simorgh3196/texide"
+keywords = ["linter", "markdown", "lsp", "wasm"]
+rust-version = "1.93"
+
+[workspace.dependencies]
+# Internal crates
+texide_ast = { path = "crates/texide_ast" }
+texide_parser = { path = "crates/texide_parser" }
+texide_plugin = { path = "crates/texide_plugin", default-features = false }
+texide_cache = { path = "crates/texide_cache" }
+texide_core = { path = "crates/texide_core", default-features = false }
+
+# WASM Runtime - Extism uses wasmtime internally (native)
+extism = "1.7"
+
+# WASM Runtime - Pure Rust interpreter (browser/wasm32 compatible)
+wasmi = "0.40"
+
+# Markdown Parser - mdast-compatible AST output
+markdown = "1.0.0-alpha.21"
+
+# Memory Allocation - Arena allocator for AST nodes (Oxc-like architecture)
+bumpalo = "3.19"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rkyv = "0.8"                                       # Zero-copy deserialization for cache
+
+# Async/Parallel
+tokio = { version = "1.0", features = ["full"] }
+rayon = "1.10"
+
+# Hashing for cache
+blake3 = "1.5"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Error handling
+thiserror = "2.0"
+miette = { version = "7.4", features = ["fancy"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# File system
+walkdir = "2.5"
+globset = "0.4"
+
+# WASM browser bindings
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"
+js-sys = "0.3"
