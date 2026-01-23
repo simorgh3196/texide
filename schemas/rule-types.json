@@ -1,0 +1,269 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://texide.dev/schemas/rule-types.json",
+  "title": "Texide Rule Types",
+  "description": "Type definitions for Texide WASM rules",
+
+  "$defs": {
+    "RuleManifest": {
+      "type": "object",
+      "description": "Metadata returned by get_manifest()",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique rule identifier",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "examples": ["no-todo", "sentence-length"]
+        },
+        "version": {
+          "type": "string",
+          "description": "Semantic version",
+          "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?$",
+          "examples": ["1.0.0", "2.1.0-beta.1"]
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description"
+        },
+        "fixable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this rule can provide auto-fixes"
+        },
+        "node_types": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/NodeType" },
+          "default": [],
+          "description": "AST node types this rule processes (empty = all)"
+        },
+        "schema": {
+          "type": "object",
+          "description": "JSON Schema for rule configuration options"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "LintRequest": {
+      "type": "object",
+      "description": "Input to lint() function",
+      "required": ["node", "config", "source"],
+      "properties": {
+        "node": {
+          "$ref": "#/$defs/AstNode",
+          "description": "AST node to lint"
+        },
+        "config": {
+          "type": "object",
+          "description": "Rule configuration from .texide.json"
+        },
+        "source": {
+          "type": "string",
+          "description": "Full source text of the file"
+        },
+        "file_path": {
+          "type": ["string", "null"],
+          "description": "File path (null for stdin or virtual files)"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "LintResponse": {
+      "type": "object",
+      "description": "Output from lint() function",
+      "required": ["diagnostics"],
+      "properties": {
+        "diagnostics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Diagnostic" }
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "Diagnostic": {
+      "type": "object",
+      "description": "A single lint warning or error",
+      "required": ["rule_id", "message", "span"],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "description": "Rule that generated this diagnostic"
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable error message"
+        },
+        "span": {
+          "$ref": "#/$defs/Span"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "fix": {
+          "$ref": "#/$defs/Fix"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "Span": {
+      "type": "object",
+      "description": "Byte range in source text [start, end)",
+      "required": ["start", "end"],
+      "properties": {
+        "start": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Start byte offset (inclusive)"
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "End byte offset (exclusive)"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "Severity": {
+      "type": "string",
+      "enum": ["error", "warning", "info"],
+      "default": "error",
+      "description": "Diagnostic severity level"
+    },
+
+    "Fix": {
+      "type": "object",
+      "description": "Auto-fix replacement",
+      "required": ["span", "text"],
+      "properties": {
+        "span": {
+          "$ref": "#/$defs/Span",
+          "description": "Range to replace"
+        },
+        "text": {
+          "type": "string",
+          "description": "Replacement text (empty = delete)"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "AstNode": {
+      "type": "object",
+      "description": "TxtAST node",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/NodeType"
+        },
+        "range": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[start, end] byte offsets"
+        },
+        "loc": {
+          "$ref": "#/$defs/Location",
+          "description": "Line/column location"
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AstNode" }
+        },
+        "value": {
+          "type": "string",
+          "description": "Text content (for Str, Code, etc.)"
+        },
+        "depth": {
+          "type": "integer",
+          "description": "Header depth (1-6)"
+        },
+        "ordered": {
+          "type": "boolean",
+          "description": "List ordering"
+        },
+        "url": {
+          "type": "string",
+          "description": "Link/Image URL"
+        },
+        "title": {
+          "type": ["string", "null"],
+          "description": "Link/Image title"
+        },
+        "lang": {
+          "type": ["string", "null"],
+          "description": "CodeBlock language"
+        },
+        "identifier": {
+          "type": "string",
+          "description": "Reference identifier"
+        },
+        "label": {
+          "type": ["string", "null"],
+          "description": "Reference label"
+        }
+      }
+    },
+
+    "NodeType": {
+      "type": "string",
+      "enum": [
+        "Document",
+        "Paragraph",
+        "Header",
+        "BlockQuote",
+        "List",
+        "ListItem",
+        "CodeBlock",
+        "HorizontalRule",
+        "Html",
+        "Table",
+        "TableRow",
+        "TableCell",
+        "Str",
+        "Break",
+        "Emphasis",
+        "Strong",
+        "Delete",
+        "Code",
+        "Link",
+        "Image",
+        "LinkReference",
+        "ImageReference",
+        "FootnoteReference"
+      ],
+      "description": "AST node type"
+    },
+
+    "Location": {
+      "type": "object",
+      "description": "Line/column position",
+      "properties": {
+        "start": { "$ref": "#/$defs/Position" },
+        "end": { "$ref": "#/$defs/Position" }
+      }
+    },
+
+    "Position": {
+      "type": "object",
+      "required": ["line", "column"],
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-indexed line number"
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0-indexed column (bytes)"
+        }
+      }
+    }
+  }
+}

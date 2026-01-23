@@ -1,207 +1,566 @@
 # Rule Development Guide
 
-This guide explains how to create custom lint rules for Texide.
+Create custom lint rules for Texide in any language that compiles to WebAssembly.
 
-## Prerequisites
+## Quick Start (Rust)
 
-- Rust 1.85+
-- WASM target: `rustup target add wasm32-wasip1`
-
-## Quick Start
+### 1. Create a New Rule
 
 ```bash
-# Create a new rule project
-texide create-rule my-rule
-cd my-rule
+# From the rules/ directory
+cd rules
 
-# Build the WASM module
-cargo build --target wasm32-wasip1 --release
+# Create rule directory
+mkdir my-rule && cd my-rule
 
-# The WASM file is at:
-# target/wasm32-wasip1/release/my_rule.wasm
+# Initialize Cargo.toml
+cat > Cargo.toml << 'EOF'
+[package]
+name = "texide-rule-my-rule"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+texide-rule-common = { path = "../common" }
+extism-pdk = "1.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+EOF
+
+# Create src directory
+mkdir src
 ```
 
-## Rule Structure
+### 2. Implement the Rule
 
-Every rule must export two functions:
+Create `src/lib.rs`:
+
+```rust
+use extism_pdk::*;
+use serde::Deserialize;
+use texide_rule_common::{
+    extract_node_text, is_node_type,
+    Diagnostic, LintRequest, LintResponse, RuleManifest, Span,
+};
+
+const RULE_ID: &str = "my-rule";
+const VERSION: &str = "0.1.0";
+
+/// Rule configuration (optional)
+#[derive(Debug, Deserialize, Default)]
+struct Config {
+    // Add your config options here
+}
+
+/// Returns rule metadata
+#[plugin_fn]
+pub fn get_manifest() -> FnResult<String> {
+    let manifest = RuleManifest::new(RULE_ID, VERSION)
+        .with_description("My custom rule description")
+        .with_fixable(false)
+        .with_node_types(vec!["Str".to_string()]);
+    Ok(serde_json::to_string(&manifest)?)
+}
+
+/// Lints a single AST node
+#[plugin_fn]
+pub fn lint(input: String) -> FnResult<String> {
+    let request: LintRequest = serde_json::from_str(&input)?;
+    let mut diagnostics = Vec::new();
+
+    // Only process nodes we care about
+    if !is_node_type(&request.node, "Str") {
+        return Ok(serde_json::to_string(&LintResponse { diagnostics })?);
+    }
+
+    // Parse configuration
+    let _config: Config = serde_json::from_value(request.config.clone())
+        .unwrap_or_default();
+
+    // Extract text from node
+    if let Some((start, end, text)) = extract_node_text(&request.node, &request.source) {
+        // Your lint logic here
+        if text.contains("BAD_PATTERN") {
+            diagnostics.push(Diagnostic::warning(
+                RULE_ID,
+                "Found bad pattern in text",
+                Span::new(start as u32, end as u32),
+            ));
+        }
+    }
+
+    Ok(serde_json::to_string(&LintResponse { diagnostics })?)
+}
+```
+
+### 3. Build and Test
+
+```bash
+# Install WASM target (one-time)
+rustup target add wasm32-wasip1
+
+# Build the rule
+cargo build --target wasm32-wasip1 --release
+
+# Output: target/wasm32-wasip1/release/texide_rule_my_rule.wasm
+
+# Run unit tests
+cargo test
+```
+
+### 4. Use the Rule
+
+```bash
+# Copy to your project
+cp target/wasm32-wasip1/release/texide_rule_my_rule.wasm ~/.texide/rules/
+
+# Configure in .texide.json
+cat > .texide.json << 'EOF'
+{
+  "plugins": ["~/.texide/rules/texide_rule_my_rule.wasm"],
+  "rules": {
+    "my-rule": true
+  }
+}
+EOF
+
+# Run linting
+texide lint .
+```
+
+---
+
+## Rule Interface
+
+Every rule must implement two functions. See [WASM Interface Specification](./wasm-interface.md) for details.
 
 ### `get_manifest() -> String`
 
-Returns the rule metadata as JSON:
+Returns JSON metadata about the rule:
 
-```rust
-#[plugin_fn]
-pub fn get_manifest() -> FnResult<String> {
-    let manifest = RuleManifest {
-        name: "my-rule".to_string(),
-        version: "1.0.0".to_string(),
-        description: Some("Rule description".to_string()),
-        fixable: false,
-        node_types: vec!["Str".to_string()],
-    };
-    Ok(serde_json::to_string(&manifest)?)
+```json
+{
+  "name": "my-rule",
+  "version": "1.0.0",
+  "description": "What this rule checks",
+  "fixable": false,
+  "node_types": ["Str", "Paragraph"]
 }
 ```
 
 ### `lint(input: String) -> String`
 
-Receives a lint request and returns diagnostics:
+Receives a lint request:
 
-```rust
-#[plugin_fn]
-pub fn lint(input: String) -> FnResult<String> {
-    let request: LintRequest = serde_json::from_str(&input)?;
-    let mut diagnostics = Vec::new();
-
-    // Your lint logic here
-    // request.node - The AST node to check
-    // request.config - Rule configuration
-    // request.source - Full source text
-
-    let response = LintResponse { diagnostics };
-    Ok(serde_json::to_string(&response)?)
+```json
+{
+  "node": { "type": "Str", "range": [0, 50] },
+  "config": { "maxLength": 100 },
+  "source": "Full file content...",
+  "file_path": "path/to/file.md"
 }
 ```
+
+Returns diagnostics:
+
+```json
+{
+  "diagnostics": [
+    {
+      "rule_id": "my-rule",
+      "message": "Error description",
+      "span": { "start": 10, "end": 20 },
+      "severity": "warning"
+    }
+  ]
+}
+```
+
+---
+
+## Helper Functions
+
+The `texide-rule-common` crate provides utilities:
+
+### `extract_node_text(node, source)`
+
+Extracts text content from an AST node:
+
+```rust
+if let Some((start, end, text)) = extract_node_text(&request.node, &request.source) {
+    // start: byte offset (usize)
+    // end: byte offset (usize)
+    // text: &str slice
+}
+```
+
+### `is_node_type(node, type_str)`
+
+Checks if a node matches the expected type:
+
+```rust
+if is_node_type(&request.node, "Str") {
+    // Process text node
+}
+```
+
+### `get_node_type(node)`
+
+Gets the node type as a string:
+
+```rust
+match get_node_type(&request.node) {
+    Some("Str") => { /* ... */ }
+    Some("Paragraph") => { /* ... */ }
+    _ => {}
+}
+```
+
+---
 
 ## Node Types
 
-Rules can filter nodes by type. Available types:
+Specify which nodes your rule receives in `node_types`:
 
-| Block Elements | Inline Elements |
-|----------------|-----------------|
-| Document | Str |
-| Paragraph | Break |
-| Header | Emphasis |
-| BlockQuote | Strong |
-| List | Delete |
-| ListItem | Code |
-| CodeBlock | Link |
-| HorizontalRule | Image |
-| Html | LinkReference |
-| Table | ImageReference |
-| TableRow | FootnoteReference |
-| TableCell | |
+### Block Elements
 
-## Example: No TODO Rule
+| Type | Use Case |
+|------|----------|
+| `Document` | Process entire document |
+| `Paragraph` | Check paragraph structure |
+| `Header` | Validate headings |
+| `BlockQuote` | Check quoted content |
+| `List` | Validate list structure |
+| `ListItem` | Check list items |
+| `CodeBlock` | Analyze code blocks |
+| `Table` | Check table content |
 
-```rust
-use extism_pdk::*;
-use serde::{Deserialize, Serialize};
+### Inline Elements
 
-#[derive(Deserialize)]
-struct LintRequest {
-    node: serde_json::Value,
-    config: serde_json::Value,
-    source: String,
-}
+| Type | Use Case |
+|------|----------|
+| `Str` | **Most common** - plain text analysis |
+| `Emphasis` | Check emphasized text |
+| `Strong` | Check bold text |
+| `Code` | Validate inline code |
+| `Link` | Check URLs and link text |
+| `Image` | Validate image references |
 
-#[derive(Serialize)]
-struct Diagnostic {
-    rule_id: String,
-    message: String,
-    span: Span,
-    severity: String,
-}
+**Tip**: Start with `["Str"]` for text-focused rules.
 
-#[derive(Serialize)]
-struct Span {
-    start: u32,
-    end: u32,
-}
-
-#[plugin_fn]
-pub fn lint(input: String) -> FnResult<String> {
-    let request: LintRequest = serde_json::from_str(&input)?;
-    let mut diagnostics = Vec::new();
-
-    // Check if node is a text node
-    if request.node.get("type").and_then(|t| t.as_str()) == Some("Str") {
-        if let Some(range) = request.node.get("range").and_then(|r| r.as_array()) {
-            let start = range[0].as_u64().unwrap_or(0) as usize;
-            let end = range[1].as_u64().unwrap_or(0) as usize;
-            let text = &request.source[start..end];
-
-            if text.contains("TODO") {
-                diagnostics.push(Diagnostic {
-                    rule_id: "no-todo".to_string(),
-                    message: "TODO comments are not allowed".to_string(),
-                    span: Span {
-                        start: start as u32,
-                        end: end as u32,
-                    },
-                    severity: "error".to_string(),
-                });
-            }
-        }
-    }
-
-    let response = serde_json::json!({ "diagnostics": diagnostics });
-    Ok(serde_json::to_string(&response)?)
-}
-```
+---
 
 ## Configuration
 
-Rules receive configuration from `.texide.json`:
+### Defining Config Options
+
+```rust
+#[derive(Debug, Deserialize, Default)]
+struct Config {
+    /// Maximum allowed length (default: 100)
+    #[serde(default = "default_max")]
+    max: usize,
+
+    /// Patterns to ignore
+    #[serde(default)]
+    ignore_patterns: Vec<String>,
+
+    /// Enable strict mode
+    #[serde(default)]
+    strict: bool,
+}
+
+fn default_max() -> usize { 100 }
+```
+
+### User Configuration
+
+In `.texide.json`:
 
 ```json
 {
   "rules": {
+    "my-rule": true,
+    "my-rule": "error",
     "my-rule": {
-      "option1": "value1",
-      "option2": 42
+      "max": 80,
+      "strict": true
     }
   }
 }
 ```
 
-Access config in your rule:
+---
+
+## Auto-Fix Support
+
+To provide auto-fixes:
+
+1. Set `fixable: true` in manifest
+2. Include `fix` in diagnostics
 
 ```rust
-if let Some(max) = request.config.get("maxLength").and_then(|v| v.as_u64()) {
-    // Use max value
+use texide_rule_common::Fix;
+
+#[plugin_fn]
+pub fn get_manifest() -> FnResult<String> {
+    let manifest = RuleManifest::new(RULE_ID, VERSION)
+        .with_fixable(true);  // Enable fixes
+    // ...
+}
+
+#[plugin_fn]
+pub fn lint(input: String) -> FnResult<String> {
+    // ...
+    diagnostics.push(
+        Diagnostic::warning(RULE_ID, "Issue found", span)
+            .with_fix(Fix::new(span, "replacement text"))
+    );
+    // ...
 }
 ```
 
-## Auto-fix Support
-
-To provide auto-fixes, set `fixable: true` in manifest and include `fix`:
+### Fix Types
 
 ```rust
-diagnostics.push(Diagnostic {
-    rule_id: "my-rule".to_string(),
-    message: "Message".to_string(),
-    span: Span { start, end },
-    severity: "error".to_string(),
-    fix: Some(Fix {
-        span: Span { start, end },
-        text: "replacement text".to_string(),
-    }),
-});
+// Replace text
+Fix::new(Span::new(10, 20), "new text")
+
+// Insert at position
+Fix::insert(15, "inserted text")
+
+// Delete range
+Fix::delete(Span::new(10, 20))
 ```
+
+---
 
 ## Testing
 
-Create test files and run:
+### Unit Tests
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_request(text: &str, config: serde_json::Value) -> String {
+        serde_json::json!({
+            "node": { "type": "Str", "range": [0, text.len()] },
+            "config": config,
+            "source": text,
+            "file_path": null
+        }).to_string()
+    }
+
+    #[test]
+    fn detects_bad_pattern() {
+        let input = create_request("This has BAD_PATTERN here", serde_json::json!({}));
+        let output = lint(input).unwrap();
+        let response: LintResponse = serde_json::from_str(&output).unwrap();
+
+        assert_eq!(response.diagnostics.len(), 1);
+        assert_eq!(response.diagnostics[0].rule_id, "my-rule");
+    }
+
+    #[test]
+    fn ignores_good_text() {
+        let input = create_request("This is clean text", serde_json::json!({}));
+        let output = lint(input).unwrap();
+        let response: LintResponse = serde_json::from_str(&output).unwrap();
+
+        assert!(response.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn respects_config() {
+        let input = create_request("test", serde_json::json!({ "max": 2 }));
+        // ...
+    }
+}
+```
+
+### Integration Testing
 
 ```bash
-# Build your rule
-cargo build --target wasm32-wasip1 --release
+# Create test file
+echo "This has BAD_PATTERN in it" > test.md
 
-# Test with Texide
-texide lint --config test-config.json test-files/
+# Run with your rule
+texide lint --config test-config.json test.md
 ```
+
+---
+
+## Best Practices
+
+### Performance
+
+- Filter early with `is_node_type()`
+- Avoid unnecessary string allocations
+- Use `&str` references when possible
+- Consider caching compiled regexes in config parsing
+
+### Error Messages
+
+- Be specific and actionable
+- Include what was found and what was expected
+- Suggest how to fix the issue
+
+```rust
+// Good
+"Sentence has 150 characters, maximum is 100. Consider splitting into shorter sentences."
+
+// Bad
+"Too long"
+```
+
+### Severity Levels
+
+| Level | Use Case |
+|-------|----------|
+| `error` | Must fix before commit |
+| `warning` | Should fix, but not blocking |
+| `info` | Suggestion or style preference |
+
+### Configuration Defaults
+
+- Provide sensible defaults
+- Document all options
+- Use `#[serde(default)]` for optional fields
+
+---
 
 ## Publishing
 
-1. Build the WASM file
-2. Publish to a registry (npm, crates.io, or GitHub releases)
-3. Users install with: `texide add-rule <path-or-url>`
+### Option 1: GitHub Releases
 
-## Tips
+```bash
+# Build release
+cargo build --target wasm32-wasip1 --release
 
-- Keep rules focused on a single concern
-- Use descriptive error messages
-- Provide auto-fixes when possible
-- Test with various input files
-- Consider performance for large files
+# Create GitHub release with .wasm file
+gh release create v1.0.0 \
+  target/wasm32-wasip1/release/texide_rule_my_rule.wasm
+```
+
+### Option 2: npm Registry
+
+```bash
+# Create package.json for distribution
+{
+  "name": "@yourorg/texide-rule-my-rule",
+  "version": "1.0.0",
+  "files": ["texide_rule_my_rule.wasm"]
+}
+
+npm publish
+```
+
+### Option 3: Direct Distribution
+
+Share the `.wasm` file directly. Users add to `.texide.json`:
+
+```json
+{
+  "plugins": ["./rules/my-rule.wasm"]
+}
+```
+
+---
+
+## Language Support
+
+### Rust (Recommended)
+
+Use `extism-pdk` and `texide-rule-common`:
+
+```toml
+[dependencies]
+texide-rule-common = { git = "https://github.com/simorgh3196/texide" }
+extism-pdk = "1.3"
+```
+
+### AssemblyScript
+
+See [AssemblyScript Template](../templates/assemblyscript/).
+
+```typescript
+import { JSON } from "json-as";
+import { Host, Output } from "@aspect/as-pdk";
+
+export function get_manifest(): i32 { /* ... */ }
+export function lint(): i32 { /* ... */ }
+```
+
+### Other Languages
+
+Any language with WASM and Extism PDK support:
+
+- Go: `github.com/extism/go-pdk`
+- Zig: `extism/zig-pdk`
+- C/C++: `extism/c-pdk`
+
+Generate types from [JSON Schema](../schemas/rule-types.json).
+
+---
+
+## Troubleshooting
+
+### Build Errors
+
+**"wasm32-wasip1 target not found"**
+```bash
+rustup target add wasm32-wasip1
+```
+
+**"crate-type cdylib required"**
+```toml
+[lib]
+crate-type = ["cdylib"]
+```
+
+### Runtime Errors
+
+**"get_manifest function not found"**
+- Ensure `#[plugin_fn]` attribute is present
+- Check function name spelling
+
+**"invalid JSON response"**
+- Verify serde serialization
+- Check for valid UTF-8 in messages
+
+### Debugging
+
+```bash
+# Enable debug logging
+RUST_LOG=debug texide lint file.md
+
+# Test with specific input
+echo '{"node":{"type":"Str","range":[0,5]},"config":{},"source":"hello","file_path":null}' | \
+  texide test-rule my-rule.wasm
+```
+
+---
+
+## Examples
+
+See [rules/](../rules/) for complete examples:
+
+- [no-todo](../rules/no-todo/) - Pattern detection
+- [sentence-length](../rules/sentence-length/) - Length validation
+- [no-doubled-joshi](../rules/no-doubled-joshi/) - Japanese particle detection
+
+---
+
+## Reference
+
+- [WASM Interface Specification](./wasm-interface.md)
+- [JSON Schema Definitions](../schemas/)
+- [Extism PDK Documentation](https://extism.org/docs/write-a-plugin/rust-pdk)

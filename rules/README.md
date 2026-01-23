@@ -1,40 +1,85 @@
-# Texide Sample Rules
+# Texide Rules
 
-This directory contains sample WASM rules for Texide.
+WASM-based lint rules for Texide.
 
-## Available Rules
+## Quick Start: Create a New Rule
 
-| Rule | Description |
-|------|-------------|
-| `no-todo` | Disallow TODO/FIXME comments |
-| `sentence-length` | Check sentence length |
-| `no-doubled-joshi` | Detect repeated Japanese particles (助詞) |
+### Option 1: Copy from Template (Recommended)
+
+```bash
+# From repo root
+cp -r templates/rust rules/my-rule
+cd rules/my-rule
+
+# Replace placeholders
+sed -i '' 's/{{RULE_NAME}}/my-rule/g' Cargo.toml src/lib.rs
+sed -i '' 's/{{RULE_DESCRIPTION}}/My custom lint rule/g' Cargo.toml src/lib.rs
+
+# Build
+cargo build --target wasm32-wasip1 --release
+```
+
+### Option 2: Copy from Existing Rule
+
+```bash
+cp -r rules/no-todo rules/my-rule
+cd rules/my-rule
+# Update Cargo.toml and src/lib.rs
+```
+
+### Option 3: Manual Setup
+
+```bash
+cd rules
+mkdir my-rule && cd my-rule
+
+cat > Cargo.toml << 'EOF'
+[package]
+name = "texide-rule-my-rule"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+texide-rule-common = { path = "../common" }
+extism-pdk = "1.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+EOF
+
+mkdir src
+# Create src/lib.rs (see templates/rust/src/lib.rs)
+```
 
 ## Building Rules
 
 ### Prerequisites
 
 ```bash
-# Install WASM target
+# Install WASM target (one-time)
 rustup target add wasm32-wasip1
 ```
 
-### Build All Rules
+### Build Commands
 
 ```bash
+# Build all rules
 cd rules
 cargo build --target wasm32-wasip1 --release
-```
 
-### Build Specific Rule
-
-```bash
+# Build specific rule
 cargo build --target wasm32-wasip1 --release -p texide-rule-no-todo
+
+# Run tests
+cargo test --workspace
 ```
 
 ### Output
 
 Built WASM files are located at:
+
 ```
 rules/target/wasm32-wasip1/release/
 ├── texide_rule_no_todo.wasm
@@ -42,20 +87,19 @@ rules/target/wasm32-wasip1/release/
 └── texide_rule_no_doubled_joshi.wasm
 ```
 
-## Testing
+## Available Rules
 
-### Unit Tests
-
-```bash
-cd rules
-cargo test --workspace
-```
+| Rule | Description | Fixable |
+|------|-------------|---------|
+| [no-todo](no-todo/) | Disallow TODO/FIXME comments | No |
+| [sentence-length](sentence-length/) | Check sentence length | No |
+| [no-doubled-joshi](no-doubled-joshi/) | Detect repeated Japanese particles | Yes |
 
 ## Rule Configuration
 
 ### no-todo
 
-Detects TODO/FIXME/XXX comments in text.
+Detects TODO/FIXME/XXX comments.
 
 ```json
 {
@@ -71,7 +115,7 @@ Detects TODO/FIXME/XXX comments in text.
 
 ### sentence-length
 
-Checks sentence length.
+Checks sentence length limits.
 
 ```json
 {
@@ -86,7 +130,7 @@ Checks sentence length.
 
 ### no-doubled-joshi
 
-Detects repeated Japanese particles.
+Detects repeated Japanese particles.（助詞の重複を検出）
 
 ```json
 {
@@ -101,22 +145,66 @@ Detects repeated Japanese particles.
 }
 ```
 
-## Developing New Rules
+## Rule Interface
 
-See [Rule Development Guide](../docs/rule-development.md) for detailed instructions.
+Every rule must export two functions:
 
-### Rule Interface
+### `get_manifest() -> String`
 
-Rules must implement two functions:
+Returns JSON metadata:
 
-1. `get_manifest()` - Returns rule metadata
-2. `lint(input: String)` - Performs linting
+```json
+{
+  "name": "rule-id",
+  "version": "1.0.0",
+  "description": "What this rule checks",
+  "fixable": false,
+  "node_types": ["Str"]
+}
+```
 
-### Using Common Types
+### `lint(input: String) -> String`
+
+Receives lint request, returns diagnostics:
 
 ```rust
 use texide_rule_common::{
-    Diagnostic, Fix, LintRequest, LintResponse, RuleManifest, Span,
     extract_node_text, is_node_type,
+    Diagnostic, LintRequest, LintResponse, RuleManifest, Span,
 };
+
+#[plugin_fn]
+pub fn lint(input: String) -> FnResult<String> {
+    let request: LintRequest = serde_json::from_str(&input)?;
+    let mut diagnostics = Vec::new();
+
+    if let Some((start, end, text)) = extract_node_text(&request.node, &request.source) {
+        // Your lint logic here
+    }
+
+    Ok(serde_json::to_string(&LintResponse { diagnostics })?)
+}
 ```
+
+## Directory Structure
+
+```
+rules/
+├── Cargo.toml              # Workspace manifest
+├── README.md               # This file
+├── common/                 # Shared types library
+│   ├── Cargo.toml
+│   └── src/lib.rs
+├── no-todo/                # Sample rule
+│   ├── Cargo.toml
+│   └── src/lib.rs
+├── sentence-length/        # Sample rule
+└── no-doubled-joshi/       # Sample rule
+```
+
+## Resources
+
+- [Rule Development Guide](../docs/rule-development.md) - Complete guide
+- [WASM Interface Spec](../docs/wasm-interface.md) - Protocol details
+- [JSON Schema](../schemas/rule-types.json) - Type definitions
+- [Templates](../templates/) - Rust & AssemblyScript templates
