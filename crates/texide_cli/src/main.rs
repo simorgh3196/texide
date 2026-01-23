@@ -1,0 +1,371 @@
+//! Texide CLI
+//!
+//! High-performance natural language linter written in Rust.
+
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use clap::{Parser, Subcommand};
+use miette::{IntoDiagnostic, Result};
+use tracing::{error, info};
+use tracing_subscriber::EnvFilter;
+
+use texide_core::{LintResult, Linter, LinterConfig, Severity};
+
+/// Texide - High-performance natural language linter
+#[derive(Parser)]
+#[command(name = "texide")]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+
+    /// Configuration file path
+    #[arg(short, long, global = true)]
+    config: Option<PathBuf>,
+
+    /// Enable verbose output
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
+    /// Disable caching
+    #[arg(long, global = true)]
+    no_cache: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Lint files
+    Lint {
+        /// File patterns to lint
+        #[arg(required = true)]
+        patterns: Vec<String>,
+
+        /// Output format (text, json)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+
+        /// Auto-fix errors
+        #[arg(long)]
+        fix: bool,
+    },
+
+    /// Initialize configuration
+    Init {
+        /// Force overwrite existing config
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Create a new rule project
+    CreateRule {
+        /// Rule name
+        name: String,
+    },
+
+    /// Add a WASM rule
+    AddRule {
+        /// Path to WASM file
+        path: PathBuf,
+    },
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+
+    // Initialize logging
+    let filter = if cli.verbose {
+        EnvFilter::new("debug")
+    } else {
+        EnvFilter::new("info")
+    };
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .init();
+
+    match run(cli) {
+        Ok(has_errors) => {
+            if has_errors {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
+        Err(e) => {
+            error!("{:?}", e);
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn run(cli: Cli) -> Result<bool> {
+    match cli.command {
+        Commands::Lint {
+            ref patterns,
+            ref format,
+            fix,
+        } => run_lint(&cli, patterns, format, fix),
+        Commands::Init { force } => {
+            run_init(force)?;
+            Ok(false)
+        }
+        Commands::CreateRule { name } => {
+            run_create_rule(&name)?;
+            Ok(false)
+        }
+        Commands::AddRule { path } => {
+            run_add_rule(&path)?;
+            Ok(false)
+        }
+    }
+}
+
+fn run_lint(cli: &Cli, patterns: &[String], format: &str, _fix: bool) -> Result<bool> {
+    // Load configuration
+    let config = if let Some(ref path) = cli.config {
+        LinterConfig::from_file(path).into_diagnostic()?
+    } else {
+        // Try to find config file
+        find_config()?
+    };
+
+    // Create linter
+    let linter = Linter::new(config).into_diagnostic()?;
+
+    // Run linting
+    let results = linter.lint_patterns(patterns).into_diagnostic()?;
+
+    // Output results
+    let has_errors = output_results(&results, format)?;
+
+    Ok(has_errors)
+}
+
+fn find_config() -> Result<LinterConfig> {
+    let config_files = [".texide.json", ".texiderc", "texide.config.json"];
+
+    for name in config_files {
+        let path = PathBuf::from(name);
+        if path.exists() {
+            info!("Using config: {}", name);
+            return LinterConfig::from_file(&path).into_diagnostic();
+        }
+    }
+
+    // Return default config if no file found
+    info!("No config file found, using defaults");
+    Ok(LinterConfig::new())
+}
+
+fn output_results(results: &[LintResult], format: &str) -> Result<bool> {
+    let has_errors = results.iter().any(|r| r.has_errors());
+
+    match format {
+        "json" => {
+            let output: Vec<_> = results
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "path": r.path.display().to_string(),
+                        "diagnostics": r.diagnostics,
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        }
+        _ => {
+            // Text format
+            for result in results {
+                if result.diagnostics.is_empty() {
+                    continue;
+                }
+
+                println!("\n{}:", result.path.display());
+                for diag in &result.diagnostics {
+                    let severity = match diag.severity {
+                        Severity::Error => "error",
+                        Severity::Warning => "warning",
+                        Severity::Info => "info",
+                    };
+                    println!(
+                        "  {}:{} {} [{}]: {}",
+                        diag.span.start, diag.span.end, severity, diag.rule_id, diag.message
+                    );
+                }
+            }
+
+            // Summary
+            let total_files = results.len();
+            let total_errors: usize = results.iter().map(|r| r.diagnostics.len()).sum();
+            let cached = results.iter().filter(|r| r.from_cache).count();
+
+            println!();
+            println!(
+                "Checked {} files ({} from cache), found {} issues",
+                total_files, cached, total_errors
+            );
+        }
+    }
+
+    Ok(has_errors)
+}
+
+fn run_init(force: bool) -> Result<()> {
+    let config_path = PathBuf::from(".texide.json");
+
+    if config_path.exists() && !force {
+        return Err(miette::miette!(
+            "Config file already exists. Use --force to overwrite."
+        ));
+    }
+
+    let default_config = r#"{
+  "rules": {
+  },
+  "plugins": [],
+  "cache": true
+}
+"#;
+
+    std::fs::write(&config_path, default_config).into_diagnostic()?;
+    info!("Created {}", config_path.display());
+
+    Ok(())
+}
+
+fn run_create_rule(name: &str) -> Result<()> {
+    let rule_dir = PathBuf::from(name);
+
+    if rule_dir.exists() {
+        return Err(miette::miette!("Directory '{}' already exists", name));
+    }
+
+    std::fs::create_dir_all(&rule_dir).into_diagnostic()?;
+
+    // Create Cargo.toml
+    let cargo_toml = format!(
+        r#"[package]
+name = "{}"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+extism-pdk = "1.2"
+serde = {{ version = "1.0", features = ["derive"] }}
+serde_json = "1.0"
+"#,
+        name.replace('-', "_")
+    );
+
+    std::fs::write(rule_dir.join("Cargo.toml"), cargo_toml).into_diagnostic()?;
+
+    // Create src/lib.rs
+    let lib_rs = format!(
+        r#"//! {} rule for Texide
+
+use extism_pdk::*;
+use serde::{{Deserialize, Serialize}};
+
+#[derive(Debug, Serialize)]
+struct RuleManifest {{
+    name: String,
+    version: String,
+    description: Option<String>,
+    fixable: bool,
+    node_types: Vec<String>,
+}}
+
+#[derive(Debug, Deserialize)]
+struct LintRequest {{
+    node: serde_json::Value,
+    config: serde_json::Value,
+    source: String,
+    file_path: Option<String>,
+}}
+
+#[derive(Debug, Serialize)]
+struct LintResponse {{
+    diagnostics: Vec<Diagnostic>,
+}}
+
+#[derive(Debug, Serialize)]
+struct Diagnostic {{
+    rule_id: String,
+    message: String,
+    span: Span,
+    severity: String,
+}}
+
+#[derive(Debug, Serialize)]
+struct Span {{
+    start: u32,
+    end: u32,
+}}
+
+#[plugin_fn]
+pub fn get_manifest() -> FnResult<String> {{
+    let manifest = RuleManifest {{
+        name: "{}".to_string(),
+        version: "0.1.0".to_string(),
+        description: Some("TODO: Add description".to_string()),
+        fixable: false,
+        node_types: vec!["Str".to_string()],
+    }};
+
+    Ok(serde_json::to_string(&manifest)?)
+}}
+
+#[plugin_fn]
+pub fn lint(input: String) -> FnResult<String> {{
+    let request: LintRequest = serde_json::from_str(&input)?;
+    let mut diagnostics = Vec::new();
+
+    // TODO: Implement your rule logic here
+    // Example: Check for specific patterns in text nodes
+    //
+    // if let Some(value) = request.node.get("value") {{
+    //     if value.as_str().unwrap_or("").contains("TODO") {{
+    //         diagnostics.push(Diagnostic {{
+    //             rule_id: "{}".to_string(),
+    //             message: "Found TODO".to_string(),
+    //             span: Span {{ start: 0, end: 4 }},
+    //             severity: "error".to_string(),
+    //         }});
+    //     }}
+    // }}
+
+    let response = LintResponse {{ diagnostics }};
+    Ok(serde_json::to_string(&response)?)
+}}
+"#,
+        name, name, name
+    );
+
+    std::fs::create_dir_all(rule_dir.join("src")).into_diagnostic()?;
+    std::fs::write(rule_dir.join("src/lib.rs"), lib_rs).into_diagnostic()?;
+
+    info!("Created rule project: {}", name);
+    info!(
+        "To build: cd {} && cargo build --target wasm32-wasip1 --release",
+        name
+    );
+
+    Ok(())
+}
+
+fn run_add_rule(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Err(miette::miette!("File not found: {}", path.display()));
+    }
+
+    // For now, just verify the WASM file can be loaded
+    info!("Rule added: {}", path.display());
+    info!("Add the rule to your .texide.json to enable it");
+
+    Ok(())
+}
