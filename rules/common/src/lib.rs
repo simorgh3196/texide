@@ -15,6 +15,109 @@ pub struct LintRequest {
     pub source: String,
     /// File path (if available).
     pub file_path: Option<String>,
+    /// Pre-computed helper information for easier rule development.
+    #[serde(default)]
+    pub helpers: Option<LintHelpers>,
+}
+
+/// Pre-computed helper information for lint rules.
+///
+/// This provides commonly needed data that would otherwise require
+/// repetitive parsing in each rule.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LintHelpers {
+    /// The text content of the current node (pre-extracted).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+
+    /// Line and column location information.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<LintLocation>,
+
+    /// Context about surrounding nodes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<LintContext>,
+
+    /// Flags indicating the node's position in the document structure.
+    #[serde(default)]
+    pub flags: LintFlags,
+}
+
+/// Line and column location information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LintLocation {
+    /// Start position.
+    pub start: Position,
+    /// End position.
+    pub end: Position,
+}
+
+/// A position in the document (1-indexed line and column).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Position {
+    /// Line number (1-indexed).
+    pub line: u32,
+    /// Column number (1-indexed).
+    pub column: u32,
+}
+
+impl Position {
+    /// Creates a new position.
+    pub fn new(line: u32, column: u32) -> Self {
+        Self { line, column }
+    }
+}
+
+/// Context about surrounding nodes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LintContext {
+    /// Type of the previous sibling node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_node_type: Option<String>,
+
+    /// Type of the next sibling node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_node_type: Option<String>,
+
+    /// Type of the parent node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_node_type: Option<String>,
+
+    /// Nesting depth in the AST (0 = root).
+    #[serde(default)]
+    pub depth: u32,
+}
+
+/// Flags indicating the node's position in the document structure.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LintFlags {
+    /// Whether the node is inside a code block.
+    #[serde(default)]
+    pub in_code_block: bool,
+
+    /// Whether the node is inside inline code.
+    #[serde(default)]
+    pub in_code_inline: bool,
+
+    /// Whether the node is inside a heading.
+    #[serde(default)]
+    pub in_heading: bool,
+
+    /// Whether the node is inside a list.
+    #[serde(default)]
+    pub in_list: bool,
+
+    /// Whether the node is inside a blockquote.
+    #[serde(default)]
+    pub in_blockquote: bool,
+
+    /// Whether the node is inside a link.
+    #[serde(default)]
+    pub in_link: bool,
+
+    /// Whether the node is inside a table.
+    #[serde(default)]
+    pub in_table: bool,
 }
 
 /// Response from a rule's lint function.
@@ -230,6 +333,96 @@ pub fn get_node_type(node: &serde_json::Value) -> Option<&str> {
     node.get("type").and_then(|t| t.as_str())
 }
 
+// ============================================================================
+// Helper accessors for LintRequest
+// ============================================================================
+
+/// Gets the text content from the request, using helpers if available.
+///
+/// Falls back to extracting from source using node range if helpers.text is None.
+pub fn get_text<'a>(request: &'a LintRequest) -> Option<&'a str> {
+    // Try helpers.text first
+    if let Some(ref helpers) = request.helpers {
+        if let Some(ref text) = helpers.text {
+            return Some(text.as_str());
+        }
+    }
+
+    // Fall back to extraction
+    extract_node_text(&request.node, &request.source).map(|(_, _, text)| text)
+}
+
+/// Gets the location from the request helpers.
+pub fn get_location(request: &LintRequest) -> Option<&LintLocation> {
+    request.helpers.as_ref()?.location.as_ref()
+}
+
+/// Checks if the current node is inside a code block.
+pub fn is_in_code_block(request: &LintRequest) -> bool {
+    request
+        .helpers
+        .as_ref()
+        .map(|h| h.flags.in_code_block || h.flags.in_code_inline)
+        .unwrap_or(false)
+}
+
+/// Checks if the current node is inside a heading.
+pub fn is_in_heading(request: &LintRequest) -> bool {
+    request
+        .helpers
+        .as_ref()
+        .map(|h| h.flags.in_heading)
+        .unwrap_or(false)
+}
+
+/// Checks if the current node is inside a list.
+pub fn is_in_list(request: &LintRequest) -> bool {
+    request
+        .helpers
+        .as_ref()
+        .map(|h| h.flags.in_list)
+        .unwrap_or(false)
+}
+
+/// Checks if the current node is inside a blockquote.
+pub fn is_in_blockquote(request: &LintRequest) -> bool {
+    request
+        .helpers
+        .as_ref()
+        .map(|h| h.flags.in_blockquote)
+        .unwrap_or(false)
+}
+
+/// Checks if the current node is inside a link.
+pub fn is_in_link(request: &LintRequest) -> bool {
+    request
+        .helpers
+        .as_ref()
+        .map(|h| h.flags.in_link)
+        .unwrap_or(false)
+}
+
+/// Gets the parent node type.
+pub fn get_parent_type(request: &LintRequest) -> Option<&str> {
+    request
+        .helpers
+        .as_ref()?
+        .context
+        .as_ref()?
+        .parent_node_type
+        .as_deref()
+}
+
+/// Gets the depth of the current node in the AST.
+pub fn get_depth(request: &LintRequest) -> u32 {
+    request
+        .helpers
+        .as_ref()
+        .and_then(|h| h.context.as_ref())
+        .map(|c| c.depth)
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,7 +574,10 @@ mod tests {
 
     #[test]
     fn severity_serialization() {
-        assert_eq!(serde_json::to_string(&Severity::Error).unwrap(), "\"error\"");
+        assert_eq!(
+            serde_json::to_string(&Severity::Error).unwrap(),
+            "\"error\""
+        );
         assert_eq!(
             serde_json::to_string(&Severity::Warning).unwrap(),
             "\"warning\""
