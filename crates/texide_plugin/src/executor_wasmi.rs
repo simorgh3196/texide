@@ -79,7 +79,7 @@ impl WasmiExecutor {
             .ok_or_else(|| PluginError::call("Memory not initialized"))?;
 
         let data = memory
-            .data(&store)
+            .data(store)
             .get(ptr as usize..(ptr + len) as usize)
             .ok_or_else(|| PluginError::call("Memory access out of bounds"))?;
 
@@ -145,11 +145,7 @@ impl RuleExecutor for WasmiExecutor {
             .func_wrap(
                 "env",
                 "abort",
-                |_caller: Caller<'_, HostState>,
-                 _msg: i32,
-                 _file: i32,
-                 _line: i32,
-                 _col: i32| {
+                |_caller: Caller<'_, HostState>, _msg: i32, _file: i32, _line: i32, _col: i32| {
                     // Abort handler - in real implementation, this would panic
                 },
             )
@@ -270,10 +266,10 @@ impl RuleExecutor for WasmiExecutor {
             Self::write_string(&mut rule.store, &rule.alloc_fn, input_json)?;
 
         // Call lint function
-        let (output_ptr, output_len) = rule
-            .lint_fn
-            .call(&mut rule.store, (input_ptr, input_len))
-            .map_err(|e| PluginError::call(format!("Rule '{}' failed: {}", rule_name, e)))?;
+        let (output_ptr, output_len) =
+            rule.lint_fn
+                .call(&mut rule.store, (input_ptr, input_len))
+                .map_err(|e| PluginError::call(format!("Rule '{}' failed: {}", rule_name, e)))?;
 
         // Read output from WASM memory
         let response_json = Self::read_string(&rule.store, output_ptr, output_len)?;
