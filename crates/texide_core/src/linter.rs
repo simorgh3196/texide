@@ -410,6 +410,38 @@ impl Linter {
         names
     }
 
+    /// Lints content directly (for LSP or modify-on-save scenarios).
+    pub fn lint_content(
+        &self,
+        content: &str,
+        path: &Path,
+    ) -> Result<Vec<texide_plugin::Diagnostic>, LinterError> {
+        // Find appropriate parser
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+        let parser = self.select_parser(extension);
+
+        // Parse the file
+        let arena = AstArena::new();
+        let ast = parser
+            .parse(&arena, content)
+            .map_err(|e| LinterError::parse(e.to_string()))?;
+
+        // Convert AST to JSON for plugin system
+        let ast_json = self.ast_to_json(&ast, content);
+
+        // Run rules
+        let diagnostics = {
+            let mut host = self
+                .plugin_host
+                .lock()
+                .map_err(|_| LinterError::Internal("Plugin host lock poisoned".to_string()))?;
+            host.run_all_rules(&ast_json, content, path.to_str())?
+        };
+
+        Ok(diagnostics)
+    }
+
     /// Gets the versions of all loaded rules.
     fn get_rule_versions(&self) -> HashMap<String, String> {
         let host = self.plugin_host.lock().unwrap();

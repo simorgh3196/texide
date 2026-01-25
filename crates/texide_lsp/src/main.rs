@@ -12,9 +12,9 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 
-use texide_ast::AstArena;
-use texide_core::{Diagnostic as TexideDiagnostic, LinterConfig, Severity as TexideSeverity};
-use texide_parser::{MarkdownParser, Parser, PlainTextParser};
+use texide_core::{
+    Diagnostic as TexideDiagnostic, Linter, LinterConfig, Severity as TexideSeverity,
+};
 
 /// The LSP backend for Texide.
 struct Backend {
@@ -23,17 +23,23 @@ struct Backend {
     /// Document contents cache.
     documents: RwLock<HashMap<Url, String>>,
     /// Linter configuration.
-    #[allow(dead_code)]
-    config: RwLock<LinterConfig>,
+    /// Linter instance.
+    linter: RwLock<Linter>,
 }
 
 impl Backend {
     /// Creates a new backend with the given client.
     fn new(client: Client) -> Self {
+        // Initialize linter with default config
+        // Initialize linter with default config
+        // Real config will be loaded during `initialize` if available
+        let config = LinterConfig::new();
+        let linter = Linter::new(config).expect("Failed to initialize linter");
+
         Self {
             client,
             documents: RwLock::new(HashMap::new()),
-            config: RwLock::new(LinterConfig::new()),
+            linter: RwLock::new(linter),
         }
     }
 
@@ -41,7 +47,15 @@ impl Backend {
     async fn validate_document(&self, uri: &Url, text: &str, version: Option<i32>) {
         debug!("Validating document: {}", uri);
 
-        let diagnostics = self.lint_text(text, uri.path());
+        let path = match uri.to_file_path() {
+            Ok(p) => p,
+            Err(_) => {
+                debug!("Skipping validation for non-file URI: {}", uri);
+                return;
+            }
+        };
+
+        let diagnostics = self.lint_text(text, &path);
 
         // Convert to LSP diagnostics
         let lsp_diagnostics: Vec<Diagnostic> = diagnostics
@@ -55,29 +69,23 @@ impl Backend {
     }
 
     /// Lints text and returns Texide diagnostics.
-    fn lint_text(&self, text: &str, file_path: &str) -> Vec<TexideDiagnostic> {
-        // Determine parser based on file extension
-        let extension = file_path.rsplit('.').next().unwrap_or("");
-
-        let parser: Box<dyn Parser> = match extension {
-            "md" | "markdown" => Box::new(MarkdownParser::new()),
-            _ => Box::new(PlainTextParser::new()),
-        };
-
-        // Parse the document
-        let arena = AstArena::new();
-        let ast = match parser.parse(&arena, text) {
-            Ok(ast) => ast,
-            Err(e) => {
-                error!("Parse error: {}", e);
+    fn lint_text(&self, text: &str, path: &std::path::Path) -> Vec<TexideDiagnostic> {
+        // Safely acquire read lock, handling potential poisoning
+        let linter_guard = match self.linter.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                error!("Linter lock poisoned: {}", poisoned);
                 return vec![];
             }
         };
 
-        // For now, return empty diagnostics
-        // TODO: Integrate with plugin system to run WASM rules
-        let _ = ast;
-        vec![]
+        match linter_guard.lint_content(text, path) {
+            Ok(diagnostics) => diagnostics,
+            Err(e) => {
+                error!("Lint error: {}", e);
+                vec![]
+            }
+        }
     }
 
     /// Converts a Texide diagnostic to an LSP diagnostic.
@@ -134,12 +142,43 @@ impl Backend {
 
         Some(Position::new(line, col))
     }
+
+    /// Helper to compare Positions (p1 <= p2)
+    fn positions_le(&self, p1: Position, p2: Position) -> bool {
+        p1.line < p2.line || (p1.line == p2.line && p1.character <= p2.character)
+    }
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         info!("Texide LSP server initializing...");
+
+        if let Some(path) = params.root_uri.and_then(|u| u.to_file_path().ok()) {
+            let config_files = [".texide.json", ".texiderc", "texide.config.json"];
+            for name in config_files {
+                let config_path = path.join(name);
+                if config_path.exists() {
+                    info!("Found config file: {}", config_path.display());
+                    match LinterConfig::from_file(&config_path) {
+                        Ok(config) => {
+                            info!("Loaded configuration from workspace");
+                            match self.linter.write() {
+                                Ok(mut linter_guard) => match Linter::new(config) {
+                                    Ok(new_linter) => *linter_guard = new_linter,
+                                    Err(e) => error!("Failed to create new linter: {}", e),
+                                },
+                                Err(e) => error!("Linter lock poisoned: {}", e),
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to load config: {}", e);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -153,8 +192,8 @@ impl LanguageServer for Backend {
                         ..Default::default()
                     },
                 )),
-                // TODO: Add code action support for auto-fix
-                // code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                // Code action support for auto-fix
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -239,6 +278,76 @@ impl LanguageServer for Backend {
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
             .await;
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        debug!("Code action request: {}", params.text_document.uri);
+
+        // Get document content
+        let uri = &params.text_document.uri;
+        let text = {
+            let docs = match self.documents.read() {
+                Ok(guard) => guard,
+                Err(e) => {
+                    error!("Documents lock poisoned: {}", e);
+                    return Ok(None);
+                }
+            };
+            match docs.get(uri) {
+                Some(text) => text.clone(),
+                None => return Ok(None),
+            }
+        };
+
+        let path = match uri.to_file_path() {
+            Ok(p) => p,
+            Err(_) => return Ok(None),
+        };
+
+        // Re-run linting to get diagnostics with fixes
+        // Note: In a real implementation, we should cache diagnostics map to avoid re-linting
+        let diagnostics = self.lint_text(&text, &path);
+
+        let mut actions = Vec::new();
+
+        for diag in diagnostics {
+            if let Some(fix) = diag.fix {
+                // Check if the diagnostic range intersects with the requested range
+                // For simplicity, we check if the fix applies to the diagnostic in the requested range
+                // A more robust check would involve comparing LSP ranges
+
+                let fix_range =
+                    self.offset_to_range(fix.span.start as usize, fix.span.end as usize, &text);
+
+                if let Some(range) = fix_range {
+                    // Check intersection with params.range using proper Position comparison
+                    // Two ranges intersect if (start1 <= end2) && (start2 <= end1)
+                    if self.positions_le(range.start, params.range.end)
+                        && self.positions_le(params.range.start, range.end)
+                    {
+                        let action = CodeAction {
+                            title: format!("Fix: {}", diag.message),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            diagnostics: None, // We could link back to the LSP diagnostic here
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(HashMap::from([(
+                                    uri.clone(),
+                                    vec![TextEdit {
+                                        range,
+                                        new_text: fix.text,
+                                    }],
+                                )])),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        };
+                        actions.push(CodeActionOrCommand::CodeAction(action));
+                    }
+                }
+            }
+        }
+
+        Ok(Some(actions))
     }
 }
 
