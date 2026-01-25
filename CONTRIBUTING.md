@@ -55,8 +55,13 @@ texide/
 
 ### 1. Create a Feature Branch
 
+> [!IMPORTANT]
+> **Direct commits to `main` are NOT allowed.**
+> Please always create a Pull Request from your feature branch.
+
 ```bash
 git checkout -b feature/your-feature-name
+# or fix/bug-name, docs/update-readme, etc.
 ```
 
 ### 2. Make Your Changes
