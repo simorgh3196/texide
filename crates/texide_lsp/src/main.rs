@@ -253,7 +253,13 @@ impl LanguageServer for Backend {
         // Get document content
         let uri = &params.text_document.uri;
         let text = {
-            let docs = self.documents.read().unwrap();
+            let docs = match self.documents.read() {
+                Ok(guard) => guard,
+                Err(e) => {
+                    error!("Documents lock poisoned: {}", e);
+                    return Ok(None);
+                }
+            };
             match docs.get(uri) {
                 Some(text) => text.clone(),
                 None => return Ok(None),
