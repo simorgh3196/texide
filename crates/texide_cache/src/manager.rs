@@ -8,7 +8,7 @@ use texide_ast::Span;
 use texide_plugin::Diagnostic;
 use tracing::{debug, info};
 
-use crate::{entry::BlockCacheEntry, CacheEntry, CacheError};
+use crate::{CacheEntry, CacheError, entry::BlockCacheEntry};
 
 /// Manages the lint cache for all files.
 pub struct CacheManager {
@@ -152,35 +152,35 @@ impl CacheManager {
 
         // Iterate current blocks and try to find match
         for (i, current_block) in current_blocks.iter().enumerate() {
-            if let Some(candidates) = cached_blocks_map.get_mut(&current_block.hash) {
-                if let Some(best_match_idx) = Self::find_best_match(current_block, candidates) {
-                    let matched_block = candidates.remove(best_match_idx);
-                    matched_mask[i] = true;
+            if let Some(candidates) = cached_blocks_map.get_mut(&current_block.hash)
+                && let Some(best_match_idx) = Self::find_best_match(current_block, candidates)
+            {
+                let matched_block = candidates.remove(best_match_idx);
+                matched_mask[i] = true;
 
-                    // Calculate offset shift
-                    let shift = (current_block.span.start as i64) - (matched_block.span.start as i64);
+                // Calculate offset shift
+                let shift = (current_block.span.start as i64) - (matched_block.span.start as i64);
 
-                    // Add diagnostics from matched block, shifted
-                    for diag in &matched_block.diagnostics {
-                        let mut new_diag = diag.clone();
-                        // Shift span
-                        let new_start = (diag.span.start as i64 + shift) as u32;
-                        let new_end = (diag.span.end as i64 + shift) as u32;
-                        new_diag.span = Span::new(new_start, new_end);
+                // Add diagnostics from matched block, shifted
+                for diag in &matched_block.diagnostics {
+                    let mut new_diag = diag.clone();
+                    // Shift span
+                    let new_start = (diag.span.start as i64 + shift) as u32;
+                    let new_end = (diag.span.end as i64 + shift) as u32;
+                    new_diag.span = Span::new(new_start, new_end);
 
-                        // Shift fix if exists
-                        if let Some(fix) = &mut new_diag.fix {
-                            let fix_start = (fix.span.start as i64 + shift) as u32;
-                            let fix_end = (fix.span.end as i64 + shift) as u32;
-                            fix.span = Span::new(fix_start, fix_end);
-                        }
-
-                        // Note: Location (line/col) would need recalculation, but it's derived from source + span.
-                        // We clear it so it gets recomputed if needed, or we rely on Span.
-                        new_diag.loc = None;
-
-                        reused_diagnostics.push(new_diag);
+                    // Shift fix if exists
+                    if let Some(fix) = &mut new_diag.fix {
+                        let fix_start = (fix.span.start as i64 + shift) as u32;
+                        let fix_end = (fix.span.end as i64 + shift) as u32;
+                        fix.span = Span::new(fix_start, fix_end);
                     }
+
+                    // Note: Location (line/col) would need recalculation, but it's derived from source + span.
+                    // We clear it so it gets recomputed if needed, or we rely on Span.
+                    new_diag.loc = None;
+
+                    reused_diagnostics.push(new_diag);
                 }
             }
         }
@@ -202,7 +202,8 @@ impl CacheManager {
         // Heuristic: Pick the candidate closest in position to current block
         // This helps when there are duplicate blocks (e.g. empty lines or recurring headers)
         let mut best_idx = 0;
-        let mut min_dist = (current_block.span.start as i64 - candidates[0].span.start as i64).abs();
+        let mut min_dist =
+            (current_block.span.start as i64 - candidates[0].span.start as i64).abs();
 
         for (i, candidate) in candidates.iter().enumerate().skip(1) {
             let dist = (current_block.span.start as i64 - candidate.span.start as i64).abs();

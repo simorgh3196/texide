@@ -1,6 +1,6 @@
 //! Core linter engine.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
 use texide_ast::{AstArena, NodeType, TxtNode};
-use texide_cache::{entry::BlockCacheEntry, CacheEntry, CacheManager};
+use texide_cache::{CacheEntry, CacheManager, entry::BlockCacheEntry};
 use texide_parser::{MarkdownParser, Parser, PlainTextParser};
 use texide_plugin::{IsolationLevel, PluginHost};
 
@@ -219,7 +219,9 @@ impl Linter {
         };
 
         // Prepare diagnostics collection
-        let mut final_diagnostics = reused_diagnostics;
+        // We track global diagnostics separately to avoid polluting block cache later
+        let mut global_diagnostics = Vec::new();
+        let mut block_diagnostics = Vec::new();
 
         // Run rules
         {
@@ -228,16 +230,14 @@ impl Linter {
             // A. Run Global Rules
             // Global rules must always run on the full document if anything changed
             // because they depend on the full context.
-            // (Optimization: If we knew WHICH part changed, maybe we could skip?
-            // But 'Global' implies full dependency, so safe bet is re-run).
             let global_rule_names = self.get_rule_names_by_isolation(&host, IsolationLevel::Global);
             if !global_rule_names.is_empty() {
                 let ast_json = self.ast_to_json(&ast, &content);
                 for rule in global_rule_names {
-                     match host.run_rule(&rule, &ast_json, &content, path.to_str()) {
-                         Ok(diags) => final_diagnostics.extend(diags),
-                         Err(e) => warn!("Rule '{}' failed: {}", rule, e),
-                     }
+                    match host.run_rule(&rule, &ast_json, &content, path.to_str()) {
+                        Ok(diags) => global_diagnostics.extend(diags),
+                        Err(e) => warn!("Rule '{}' failed: {}", rule, e),
+                    }
                 }
             }
 
@@ -245,41 +245,7 @@ impl Linter {
             let block_rule_names = self.get_rule_names_by_isolation(&host, IsolationLevel::Block);
             if !block_rule_names.is_empty() {
                 // Collect AST nodes for changed blocks
-                // We need to map blocks back to AST nodes.
-                // Since `current_blocks` are derived from AST, we can traverse AST and check spans.
-                // However, `extract_blocks` creates flat list.
-                // Better: iterate AST, find nodes corresponding to blocks where matched_mask is false.
-
-                // For simplicity/performance in this MVP:
-                // We just traverse the AST again. If a node corresponds to a Block (Paragraph, Header, etc.),
-                // we check if it was matched.
-                // Problem: `extract_blocks` flattens. Matching back to AST node might be tricky if not careful.
-                // Solution: We'll construct a list of "nodes to lint" based on `matched_mask`.
-
-                // Let's iterate `current_blocks` alongside `matched_mask`.
-                // If !matched, we need to run block rules on THIS block's content/node.
-                // To do this efficiently, we probably want `extract_blocks` to return references to AST nodes?
-                // But `BlockCacheEntry` needs to be serializable (no AST refs).
-
-                // Let's change approach slightly:
-                // We can just run rules on the specific AST sub-trees that correspond to changed blocks.
-                // But `host.run_rule` expects JSON.
-
-                // Hack: We can serialize just the relevant sub-tree to JSON and run the rule on it.
-                // BUT: The rule expects `TxtNode`.
-                // Does the rule need to know it's a root or a fragment?
-                // Most rules iterate over children. Passing a Paragraph node as root should work for block rules
-                // if they are written to handle visiting that node type.
-
-                // Limitation: If a rule expects "Document" as root, passing "Paragraph" might fail?
-                // `texide_plugin` traversing logic usually starts at root.
-                // If we pass a fragment, the rule will visit that fragment and children.
-                // As long as the rule doesn't assume root is Document, it's fine.
-                // `IsolationLevel::Block` rules SHOULD be designed to handle fragments.
-
-                // Optimization: We need to map `matched_mask` back to actual AST nodes.
-                // Since `extract_blocks` traverses in a deterministic order, we can replicate that traversal.
-
+                // We map `matched_mask` back to actual AST nodes by traversing.
                 let mut block_index = 0;
                 self.visit_blocks(&ast, &mut |node| {
                     if block_index < matched_mask.len() {
@@ -288,7 +254,7 @@ impl Linter {
                             let node_json = self.ast_to_json(node, &content);
                             for rule in &block_rule_names {
                                 match host.run_rule(rule, &node_json, &content, path.to_str()) {
-                                    Ok(diags) => final_diagnostics.extend(diags),
+                                    Ok(diags) => block_diagnostics.extend(diags),
                                     Err(e) => warn!("Rule '{}' failed: {}", rule, e),
                                 }
                             }
@@ -299,23 +265,71 @@ impl Linter {
             }
         }
 
-        // Remove duplicates if any (e.g. from overlapping runs or global rules reporting same thing)
-        // (Optional but good for safety)
+        // Deduplicate diagnostics
+        // We combine reused (unchanged blocks), global (fresh), and block (changed blocks) diagnostics.
+        let mut all_diagnostics = reused_diagnostics;
+        all_diagnostics.extend(global_diagnostics.iter().cloned());
+        all_diagnostics.extend(block_diagnostics);
+
+        let mut final_diagnostics = Vec::new();
+        let mut seen_diagnostics = HashSet::new();
+
+        // Also track which diagnostics are "global" so we don't stick them into block cache
+        let mut global_keys = HashSet::new();
+        for d in &global_diagnostics {
+            global_keys.insert((
+                d.span.start,
+                d.span.end,
+                d.message.clone(),
+                d.rule_id.clone(),
+            ));
+        }
+
+        for diag in all_diagnostics {
+            let key = (
+                diag.span.start,
+                diag.span.end,
+                diag.message.clone(),
+                diag.rule_id.clone(),
+            );
+            if seen_diagnostics.insert(key) {
+                final_diagnostics.push(diag);
+            }
+        }
 
         // Update cache
         // We need to associate diagnostics with blocks for NEXT time.
-        // This is tricky: we have `final_diagnostics`. Which diagnostic belongs to which block?
-        // We need to re-partition diagnostics into blocks to store in `BlockCacheEntry`.
+        // We ensure we ONLY store diagnostics that belong to the block and are NOT global.
 
-        let new_blocks: Vec<BlockCacheEntry> = current_blocks.into_iter().map(|mut block| {
-            // Filter diagnostics that fall within this block's span
-            let block_diags: Vec<_> = final_diagnostics.iter()
-                .filter(|d| d.span.start >= block.span.start && d.span.end <= block.span.end)
-                .cloned()
-                .collect();
-            block.diagnostics = block_diags;
-            block
-        }).collect();
+        let new_blocks: Vec<BlockCacheEntry> = current_blocks
+            .into_iter()
+            .map(|mut block| {
+                // Filter diagnostics that fall within this block's span
+                let block_diags: Vec<_> = final_diagnostics
+                    .iter()
+                    .filter(|d| {
+                        // Check strict inclusion
+                        let in_block =
+                            d.span.start >= block.span.start && d.span.end <= block.span.end;
+                        if !in_block {
+                            return false;
+                        }
+
+                        // Check if it's a global diagnostic
+                        let key = (
+                            d.span.start,
+                            d.span.end,
+                            d.message.clone(),
+                            d.rule_id.clone(),
+                        );
+                        !global_keys.contains(&key)
+                    })
+                    .cloned()
+                    .collect();
+                block.diagnostics = block_diags;
+                block
+            })
+            .collect();
 
         {
             let mut cache = self.cache.lock().unwrap();
@@ -339,15 +353,29 @@ impl Linter {
         // Helper to traverse and collect blocks
         self.visit_blocks(ast, &mut |node| {
             // Compute hash for this block
-            // For now, simple content hash of the span
-            let block_content = &content[node.span.start as usize..node.span.end as usize];
-            let hash = CacheManager::hash_content(block_content);
+            // Use byte-safe operations to prevent panics
+            let start = node.span.start as usize;
+            let end = node.span.end as usize;
+            let content_bytes = content.as_bytes();
 
-            blocks.push(BlockCacheEntry {
-                hash,
-                span: node.span,
-                diagnostics: Vec::new(), // Will be populated later
-            });
+            // Safety check for bounds
+            if start <= content_bytes.len() && end <= content_bytes.len() && start <= end {
+                let bytes = &content_bytes[start..end];
+                let block_content = String::from_utf8_lossy(bytes);
+                let hash = CacheManager::hash_content(&block_content);
+
+                blocks.push(BlockCacheEntry {
+                    hash,
+                    span: node.span,
+                    diagnostics: Vec::new(), // Will be populated later
+                });
+            } else {
+                warn!(
+                    "Block span {:?} out of bounds for content length {}",
+                    node.span,
+                    content.len()
+                );
+            }
         });
 
         blocks
@@ -356,7 +384,8 @@ impl Linter {
     /// Visits nodes that are considered "blocks" (e.g. Paragraphs, Headers).
     /// This defines the granularity of incremental caching.
     fn visit_blocks<F>(&self, node: &TxtNode, f: &mut F)
-    where F: FnMut(&TxtNode)
+    where
+        F: FnMut(&TxtNode),
     {
         // Define what constitutes a "block".
         // For Markdown, usually top-level children of Document (Paragraph, Heading, List, etc.)
