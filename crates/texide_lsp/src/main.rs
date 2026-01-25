@@ -163,8 +163,13 @@ impl LanguageServer for Backend {
                     match LinterConfig::from_file(&config_path) {
                         Ok(config) => {
                             info!("Loaded configuration from workspace");
-                            let mut linter = self.linter.write().unwrap();
-                            *linter = Linter::new(config).expect("Failed to re-initialize linter");
+                            match self.linter.write() {
+                                Ok(mut linter_guard) => match Linter::new(config) {
+                                    Ok(new_linter) => *linter_guard = new_linter,
+                                    Err(e) => error!("Failed to create new linter: {}", e),
+                                },
+                                Err(e) => error!("Linter lock poisoned: {}", e),
+                            }
                         }
                         Err(e) => {
                             error!("Failed to load config: {}", e);
