@@ -28,6 +28,10 @@ pub enum LinterError {
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Internal error.
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 impl LinterError {

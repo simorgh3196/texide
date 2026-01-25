@@ -432,7 +432,10 @@ impl Linter {
 
         // Run rules
         let diagnostics = {
-            let mut host = self.plugin_host.lock().unwrap();
+            let mut host = self
+                .plugin_host
+                .lock()
+                .map_err(|_| LinterError::Internal("Plugin host lock poisoned".to_string()))?;
             host.run_all_rules(&ast_json, content, path.to_str())?
         };
 

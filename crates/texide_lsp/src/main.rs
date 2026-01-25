@@ -31,7 +31,7 @@ impl Backend {
     /// Creates a new backend with the given client.
     fn new(client: Client) -> Self {
         // Initialize linter with default config
-        // TODO: Load config from workspace root
+        // TODO: Load config from workspace root. Track in issue #12.
         let config = LinterConfig::new();
         let linter = Linter::new(config).expect("Failed to initialize linter");
 
@@ -126,6 +126,11 @@ impl Backend {
         }
 
         Some(Position::new(line, col))
+    }
+
+    /// Helper to compare Positions (p1 <= p2)
+    fn positions_le(&self, p1: Position, p2: Position) -> bool {
+        p1.line < p2.line || (p1.line == p2.line && p1.character <= p2.character)
     }
 }
 
@@ -259,13 +264,14 @@ impl LanguageServer for Backend {
                 // For simplicity, we check if the fix applies to the diagnostic in the requested range
                 // A more robust check would involve comparing LSP ranges
 
-                let diag_range =
-                    self.offset_to_range(diag.span.start as usize, diag.span.end as usize, &text);
+                let fix_range =
+                    self.offset_to_range(fix.span.start as usize, fix.span.end as usize, &text);
 
-                if let Some(range) = diag_range {
-                    // Check intersection with params.range
-                    if range.start.line <= params.range.end.line
-                        && range.end.line >= params.range.start.line
+                if let Some(range) = fix_range {
+                    // Check intersection with params.range using proper Position comparison
+                    // Two ranges intersect if (start1 <= end2) && (start2 <= end1)
+                    if self.positions_le(range.start, params.range.end)
+                        && self.positions_le(params.range.start, range.end)
                     {
                         let action = CodeAction {
                             title: format!("Fix: {}", diag.message),
