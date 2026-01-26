@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-blue.svg)](https://www.rust-lang.org)
+[![CI](https://github.com/simorgh3196/texide/actions/workflows/ci.yml/badge.svg)](https://github.com/simorgh3196/texide/actions/workflows/ci.yml)
 
 # Texide
 
