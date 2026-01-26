@@ -42,6 +42,9 @@ texide lint "**/*.md"
 
 # Lint with auto-fix
 texide lint --fix "**/*.md"
+
+# Lint with performance timings
+texide lint --timings "**/*.md"
 ```
 
 ## Editor Integration (LSP)
