@@ -273,8 +273,11 @@ fn output_results(results: &[LintResult], format: &str, timings: bool) -> Result
                     sorted_timings.sort_by(|a, b| b.1.cmp(&a.1));
 
                     for (rule, duration) in sorted_timings {
-                        let percentage =
-                            (duration.as_secs_f64() / total_duration.as_secs_f64()) * 100.0;
+                        let percentage = if total_duration.as_secs_f64() > 0.0 {
+                            (duration.as_secs_f64() / total_duration.as_secs_f64()) * 100.0
+                        } else {
+                            0.0
+                        };
                         println!("{:<30} | {:<15?} | {:<10.1}%", rule, duration, percentage);
                     }
                     println!("{:-<30}-+-{:-<15}-+-{:-<10}", "", "", "");
