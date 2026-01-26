@@ -15,6 +15,7 @@ use texide_cache::{CacheEntry, CacheManager, entry::BlockCacheEntry};
 use texide_parser::{MarkdownParser, Parser, PlainTextParser};
 use texide_plugin::{IsolationLevel, PluginHost};
 
+use crate::resolver::PluginResolver;
 use crate::{LintResult, LinterConfig, LinterError};
 
 /// The core linter engine.
@@ -52,9 +53,45 @@ impl Linter {
         let include_globs = Self::build_globset(&config.include)?;
         let exclude_globs = Self::build_globset(&config.exclude)?;
 
+        // Initialize plugin host
+        let mut host = PluginHost::new();
+
+        // Load configured plugins
+        for plugin_name in &config.plugins {
+            // Validate plugin name before attempting resolution
+            let path = Path::new(plugin_name);
+            let mut components = path.components();
+            let is_valid = matches!(
+                (components.next(), components.next()),
+                (Some(std::path::Component::Normal(_)), None)
+            );
+
+            if !is_valid || plugin_name.contains(std::path::is_separator) {
+                return Err(LinterError::config(format!(
+                    "Invalid plugin name '{}': plugin names must be a single filename without paths.",
+                    plugin_name
+                )));
+            }
+
+            match PluginResolver::resolve(plugin_name, config.base_dir.as_deref()) {
+                Some(path) => {
+                    info!("Loading plugin '{}' from {}", plugin_name, path.display());
+                    if let Err(e) = host.load_rule(&path) {
+                        warn!("Failed to load plugin '{}': {}", plugin_name, e);
+                    }
+                }
+                None => {
+                    warn!(
+                        "Plugin '{}' not found. Checked .texide/plugins/ and global directories.",
+                        plugin_name
+                    );
+                }
+            }
+        }
+
         Ok(Self {
             config,
-            plugin_host: Mutex::new(PluginHost::new()),
+            plugin_host: Mutex::new(host),
             cache: Mutex::new(cache),
             include_globs,
             exclude_globs,
