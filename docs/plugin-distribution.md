@@ -99,7 +99,7 @@ Generated `.texiderc.json`:
 {
   "plugins": [
     "simorgh3196/texide-rule-no-doubled-joshi",
-    "simorgh3196/texide-rule-sentence-length@^1.0"
+    "simorgh3196/texide-rule-sentence-length@1.2.0"
   ],
   "rules": {
     "no-doubled-joshi": true,
@@ -108,34 +108,17 @@ Generated `.texiderc.json`:
 }
 ```
 
-Then run the install command:
-
-```bash
-texide plugin sync
-```
-
 ### 1.2 Plugin Specification Formats
 
 | Format | Example | Description |
 |--------|---------|-------------|
 | Local name | `"my-rule"` | Search `.texide/plugins/my-rule.wasm` |
 | GitHub | `"owner/repo"` | Fetch latest release |
-| GitHub + version | `"owner/repo@1.0.0"` | Fetch specific version |
-| Version range | `{ "github": "owner/repo", "version": "^1.0" }` | Fetch latest within range |
-| URL | `{ "url": "https://..." }` | Download directly from URL |
-| Path | `{ "path": "./local/rule.wasm" }` | Use local file |
+| GitHub + version | `"owner/repo@1.0.0"` | Fetch specific version (pinned) |
+| URL | `{ "url": "https://.../texide-plugin.json" }` | Manifest URL |
+| Path | `{ "path": "./local/texide-plugin.json" }` | Local manifest path |
 
-#### Version Range Specification
-
-Follows [semver](https://semver.org/):
-
-| Specification | Matching Range |
-|---------------|----------------|
-| `1.2.3` | Exact match only |
-| `^1.2.3` | `>=1.2.3` and `<2.0.0` |
-| `~1.2.3` | `>=1.2.3` and `<1.3.0` |
-| `>=1.0, <2.0` | Range specification |
-| `*` | Any version |
+> **Note**: Version range specification (e.g., `^1.0`, `~1.0`) is not supported. Use exact versions for reproducibility.
 
 ### 1.3 Plugin Management Commands
 
@@ -163,38 +146,9 @@ texide plugin update simorgh3196/texide-rule-no-doubled-joshi
 
 # Remove plugin
 texide plugin remove simorgh3196/texide-rule-no-doubled-joshi
-
-# Install from lockfile (for CI/CD)
-texide plugin sync
 ```
 
-### 1.4 Lockfile (texide.lock)
-
-Running `texide plugin install` or `texide plugin sync` generates/updates `texide.lock`.
-
-```json
-{
-  "version": 1,
-  "locked_at": "2026-01-27T10:00:00Z",
-  "plugins": {
-    "simorgh3196/texide-rule-no-doubled-joshi": {
-      "version": "1.2.3",
-      "resolved": "https://github.com/simorgh3196/texide-rule-no-doubled-joshi/releases/download/v1.2.3/no_doubled_joshi.wasm",
-      "sha256": "a1b2c3d4e5f6789...",
-      "installed_at": "2026-01-27T10:00:00Z"
-    }
-  }
-}
-```
-
-**Lockfile purposes**:
-- Use the same versions across team members
-- Ensure reproducibility in CI/CD
-- Batch install with `texide plugin sync`
-
-**Recommended**: Include `texide.lock` in version control
-
-### 1.5 Cache and Storage
+### 1.4 Cache and Storage
 
 ```
 ~/.texide/
@@ -218,7 +172,7 @@ To clear the cache:
 texide plugin cache clean
 ```
 
-### 1.6 Security Settings
+### 1.5 Security Settings
 
 Configure security policy in `.texiderc.json`:
 
@@ -630,7 +584,7 @@ Error: Plugin requires Texide >= 0.3.0, but current version is 0.2.0
 Clear cache and retry:
 ```bash
 texide plugin cache clean
-texide plugin sync
+texide plugin install  # Re-install plugins
 ```
 
 ---
@@ -643,11 +597,10 @@ texide plugin sync
 texide plugin install [OPTIONS] <PLUGIN>
 
 Arguments:
-  <PLUGIN>  Plugin specification (owner/repo, owner/repo@version, URL)
+  <PLUGIN>  Plugin specification (owner/repo, owner/repo@version, manifest URL/path)
 
 Options:
   -y, --yes        Skip confirmation prompt
-  --no-save        Don't save to texide.lock
   -h, --help       Show help
 ```
 
@@ -682,16 +635,6 @@ texide plugin remove <PLUGIN>
 
 Arguments:
   <PLUGIN>  Plugin name to remove
-```
-
-### texide plugin sync
-
-```
-texide plugin sync [OPTIONS]
-
-Options:
-  -y, --yes        Skip confirmation prompt
-  -h, --help       Show help
 ```
 
 ### texide plugin verify

@@ -196,23 +196,23 @@ pub fn find_all_matches(text: &str, pattern: &str) -> Vec<Match>; // パター�
     // 形式1: ローカル名（後方互換性）
     "texide_rule_no_todo",
 
-    // 形式2: GitHub形式
+    // 形式2: GitHub形式（最新バージョン）
     "simorgh3196/texide-rule-no-doubled-joshi",
 
-    // 形式3: GitHub形式 + バージョン指定
+    // 形式3: GitHub形式 + 固定バージョン
     "simorgh3196/texide-rule-sentence-length@1.2.0",
 
-    // 形式4: バージョン範囲指定
-    { "github": "simorgh3196/texide-rule-foo", "version": "^1.0" },
+    // 形式4: URL指定（マニフェストを指定）
+    { "url": "https://example.com/rules/texide-plugin.json" },
 
-    // 形式5: URL直接指定
-    { "url": "https://example.com/rules/custom-rule.wasm" },
-
-    // 形式6: ローカルパス（開発用）
-    { "path": "./my-rules/custom.wasm" }
+    // 形式5: ローカルパス（マニフェストを指定、開発用）
+    { "path": "./my-rules/texide-plugin.json" }
   ]
 }
 ```
+
+> [!NOTE]
+> バージョン範囲指定（`^1.0`, `~1.0`）は採用しない。固定バージョン指定により、設定ファイル自体が再現性を保証する。
 
 ### 1.6.2 プラグインスペックファイル（texide-plugin.json）
 
@@ -257,26 +257,7 @@ pub fn find_all_matches(text: &str, pattern: &str) -> Vec<Match>; // パター�
 - 後方互換性のある変更（オプショナルフィールド追加等）は同一バージョン内で更新
 - 旧バージョンのスキーマは非推奨化後も一定期間維持
 
-### 1.6.3 ロックファイル（texide.lock）
-
-再現性を保証するためのロックファイル:
-
-```json
-{
-  "version": 1,
-  "locked_at": "2026-01-27T10:00:00Z",
-  "plugins": {
-    "simorgh3196/texide-rule-no-doubled-joshi": {
-      "version": "1.2.3",
-      "resolved": "https://github.com/.../v1.2.3/rule.wasm",
-      "sha256": "abc123def456...",
-      "installed_at": "2026-01-27T10:00:00Z"
-    }
-  }
-}
-```
-
-### 1.6.4 セキュリティ設計
+### 1.6.3 セキュリティ設計
 
 ```mermaid
 flowchart TB
@@ -305,7 +286,7 @@ flowchart TB
 - 「Trust this repository」を選択すると、以降そのリポジトリは確認なしでインストール/アップデート
 - 信頼リストは `~/.texide/trust.json` に保存
 
-### 1.6.5 パーミッションシステム（将来拡張）
+### 1.6.4 パーミッションシステム（将来拡張）
 
 プラグインが追加の機能を必要とする場合、マニフェストで宣言:
 
@@ -362,7 +343,7 @@ flowchart TB
 - マニフェストで宣言されたパス以外へのアクセスは拒否
 - パス正規化によるディレクトリトラバーサル攻撃を防止
 
-### 1.6.6 CLIコマンド
+### 1.6.5 CLIコマンド
 
 ```bash
 # プラグインのインストール
@@ -374,9 +355,6 @@ texide plugin install --yes ...  # 確認スキップ（CI用）
 texide plugin list
 texide plugin list --outdated
 texide plugin update
-
-# ロックファイルから同期
-texide plugin sync
 
 # 信頼管理（リポジトリ単位）
 texide plugin trust add simorgh3196/texide-rule-foo
@@ -418,28 +396,27 @@ texide plugin install simorgh3196/texide-rule-sentence-length
 - `.texiderc.json` 編集時にプラグイン固有オプションの補完・バリデーションを提供
 - プラグインアップデート時に新オプションを自動提案
 
-### 1.6.7 設定ファイルスキーマ
+### 1.6.6 設定ファイルスキーマ
 
 `.texiderc.json` 用のJSON Schema（`schemas/v1/config.json`）:
 - 基本フィールド（`plugins`, `rules`, `plugin_security`等）の補完・バリデーション
 - `rules` セクションは `additionalProperties: true` でプラグイン固有オプションを許容
 - 将来的にLSPで動的補完に移行
 
-### 1.6.8 新規クレート構成
+### 1.6.7 新規クレート構成
 
 ```
 crates/
 └── texide_registry/        # NEW: プラグイン解決・取得・セキュリティ
     ├── resolver.rs         # GitHub/URL/Local の解析
     ├── source.rs           # ダウンロード・キャッシュ
-    ├── lockfile.rs         # texide.lock 管理
     ├── manifest.rs         # texide-plugin.json パース
     ├── hash.rs             # SHA256検証
     ├── trust.rs            # 信頼済みリポジトリ管理
     └── permissions.rs      # パーミッション検証・ホスト関数
 ```
 
-### 1.6.9 依存クレート
+### 1.6.8 依存クレート
 
 ```toml
 # Cargo.toml への追加
@@ -669,7 +646,7 @@ gantt
 
     section v0.2.6 外部プラグイン
     GitHub連携・ハッシュ検証 :2026-04, 1M
-    ロックファイル・CLI     :2026-04, 1M
+    CLI・キャッシュ管理     :2026-04, 1M
     確認UI・信頼管理        :2026-05, 1M
 
     section v0.3 ルール拡充
