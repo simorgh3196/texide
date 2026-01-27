@@ -112,7 +112,6 @@ Generated `.texiderc.json`:
 
 | Format | Example | Description |
 |--------|---------|-------------|
-| Local name | `"my-rule"` | Search `.texide/plugins/my-rule.wasm` |
 | GitHub | `"owner/repo"` | Fetch latest release |
 | GitHub + version | `"owner/repo@1.0.0"` | Fetch specific version (pinned) |
 | URL | `{ "url": "https://.../texide-plugin.json" }` | Manifest URL |
@@ -127,9 +126,9 @@ Generated `.texiderc.json`:
 texide plugin list
 
 # Example output:
-# NAME                                    VERSION  SOURCE
-# simorgh3196/texide-rule-no-doubled-joshi  1.2.3    github
-# texide_rule_no_todo                       1.0.0    local
+# NAME                                       VERSION  SOURCE
+# simorgh3196/texide-rule-no-doubled-joshi   1.2.3    github
+# simorgh3196/texide-rule-sentence-length    1.0.0    github
 
 # Check for updatable plugins
 texide plugin list --outdated

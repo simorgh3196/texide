@@ -193,19 +193,16 @@ pub fn find_all_matches(text: &str, pattern: &str) -> Vec<Match>; // パター�
 ```json
 {
   "plugins": [
-    // 形式1: ローカル名（後方互換性）
-    "texide_rule_no_todo",
-
-    // 形式2: GitHub形式（最新バージョン）
+    // 形式1: GitHub形式（最新バージョン）
     "simorgh3196/texide-rule-no-doubled-joshi",
 
-    // 形式3: GitHub形式 + 固定バージョン
+    // 形式2: GitHub形式 + 固定バージョン
     "simorgh3196/texide-rule-sentence-length@1.2.0",
 
-    // 形式4: URL指定（マニフェストを指定）
+    // 形式3: URL指定（マニフェストを指定）
     { "url": "https://example.com/rules/texide-plugin.json" },
 
-    // 形式5: ローカルパス（マニフェストを指定、開発用）
+    // 形式4: ローカルパス（マニフェストを指定、開発用）
     { "path": "./my-rules/texide-plugin.json" }
   ]
 }

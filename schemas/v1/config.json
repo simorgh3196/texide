@@ -1,0 +1,158 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/simorgh3196/texide/main/schemas/v1/config.json",
+  "title": "Texide Configuration",
+  "description": "Schema for .texiderc.json - Texide project configuration",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema URL for validation and IDE support"
+    },
+    "plugins": {
+      "type": "array",
+      "description": "List of plugins to load",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Plugin specification: 'owner/repo' or 'owner/repo@version'",
+            "examples": [
+              "simorgh3196/texide-rule-no-doubled-joshi",
+              "simorgh3196/texide-rule-sentence-length@1.2.0"
+            ]
+          },
+          {
+            "type": "object",
+            "description": "Plugin with URL specification",
+            "required": ["url"],
+            "properties": {
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL to texide-plugin.json manifest"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "description": "Plugin with local path specification",
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Local path to texide-plugin.json manifest"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "rules": {
+      "type": "object",
+      "description": "Rule configuration. Keys are rule IDs, values are rule options or boolean/severity.",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "boolean",
+            "description": "Enable (true) or disable (false) the rule"
+          },
+          {
+            "type": "string",
+            "enum": ["error", "warning", "info", "off"],
+            "description": "Set rule severity"
+          },
+          {
+            "type": "object",
+            "description": "Rule configuration options (varies by rule)",
+            "additionalProperties": true
+          }
+        ]
+      },
+      "examples": [
+        {
+          "no-todo": true,
+          "sentence-length": { "max": 100 },
+          "no-doubled-joshi": "warning"
+        }
+      ]
+    },
+    "plugin_security": {
+      "type": "object",
+      "description": "Plugin security settings",
+      "properties": {
+        "confirm_install": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show confirmation prompt when installing new plugins"
+        },
+        "trusted_repositories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "List of trusted repositories (format: 'owner/repo')",
+          "examples": [
+            [
+              "simorgh3196/texide-rule-no-doubled-joshi",
+              "simorgh3196/texide-rule-sentence-length"
+            ]
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "cache": {
+      "type": "object",
+      "description": "Cache settings",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable file-level caching"
+        },
+        "directory": {
+          "type": "string",
+          "description": "Cache directory path (default: .texide/cache)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "description": "Output formatting settings",
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["pretty", "json", "sarif", "github"],
+          "default": "pretty",
+          "description": "Output format"
+        },
+        "color": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable colored output"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ignore": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob patterns for files to ignore",
+      "examples": [
+        ["node_modules/**", "dist/**", "*.min.js"]
+      ]
+    },
+    "include": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob patterns for files to include",
+      "examples": [
+        ["**/*.md", "docs/**/*.txt"]
+      ]
+    }
+  },
+  "additionalProperties": false
+}
