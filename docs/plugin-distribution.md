@@ -326,7 +326,7 @@ To distribute a plugin, place `texide-rule.json` in your repository. Using JSON 
 
 #### Field Descriptions
 
-**[plugin] section**
+**[rule] section**
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -549,7 +549,7 @@ flowchart TB
 |--------|-------------|------------|
 | Data leakage | Embedding input data in diagnostic messages | Use only trusted plugins |
 | Malicious diagnostics | Outputting large amounts of unrelated warnings | Review, use only trusted repositories |
-| Supply chain attacks | Takeover of legitimate repositories | Hash verification, lockfile pinning |
+| Supply chain attacks | Takeover of legitimate repositories | Hash verification, exact version pinning |
 
 ### 3.4 Hash Verification Mechanism
 
