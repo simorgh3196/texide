@@ -12,9 +12,7 @@
     "isolation_level": "block"
   },
   "artifacts": {
-    "wasm": "../target/wasm32-wasip1/release/texide_rule_no_todo.wasm"
-  },
-  "security": {
+    "wasm": "../target/wasm32-wasip1/release/texide_rule_no_todo.wasm",
     "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   },
   "options": {
