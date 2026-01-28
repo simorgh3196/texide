@@ -73,6 +73,23 @@ Texideは、textlintにインスパイアされた高性能な自然言語リン
   - 効果: 不要なWASM境界越え + JSONシリアライズコストを削減
   - 実装箇所: `PluginHost::run_rule()` 内でマニフェストの `node_types` をチェック
 
+- [ ] **バッチ処理への移行**
+  - 現状: 各ノードに対して個別に `lint()` を呼び出し
+  - 改善: マッチするノードを配列にまとめて1回の `lint()` 呼び出しで渡す
+  - 効果: WASM呼び出しオーバーヘッド削減、`source` の重複コピー回避
+  - 関連: [WASM Interface Specification](./wasm-interface.md#lintrequest)
+
+- [ ] **インクリメンタルlint（差分lint）**
+  - `cache_scope` フィールドによるキャッシュ粒度の制御
+  - `node`: ノード単位でキャッシュ可能（`sentence-length` など）
+  - `node_type`: 同タイプのノードが変更されたら全再lint（`no-duplicate-headers` など）
+  - `document`: 何か変更されたら全再lint（`consistent-terminology` など）
+  - 関連: [WASM Interface Specification](./wasm-interface.md#cache_scope-values)
+
+- [ ] **exclude_contexts によるノードフィルタリング**
+  - ホスト側で不要なノードを除外してからWASMに渡す
+  - 例: `exclude_contexts: ["CodeBlock"]` でコードブロック内のノードをスキップ
+
 - [ ] ファイル並列処理の有効化
   - 現在 `rayon` は導入済みだが、`markdown-rs` の `ParseOptions` が `Send + Sync` を実装していないため順次処理
   - 解決策: ファイルごとにパーサーインスタンスを作成
@@ -126,20 +143,25 @@ graph LR
 
 ### 1.5.2 ルール開発DX向上
 
-#### a) LintContext の拡張
+#### a) LintRequest の設計
 
-現在の `LintRequest`:
+`LintRequest` はマッチするノードをバッチ（配列）で渡す設計:
 ```json
 {
-  "node": { "type": "Str", "range": [0, 10] },
+  "nodes": [
+    { "type": "Str", "range": [0, 10], "children": [] },
+    { "type": "Str", "range": [20, 35], "children": [] }
+  ],
   "config": {},
-  "source": "Hello World",
+  "source": "Hello World. This is a test.",
   "file_path": "test.md"
 }
 ```
 
-- [x] **LintRequest.helpers の追加**
-  - よくある処理の事前計算情報を追加 (text, location, context, flags)
+- [x] **バッチ処理設計**
+  - 全マッチノードを1回の `lint()` 呼び出しで渡す
+  - `source` は1回だけコピー（メモリ効率向上）
+  - 状態管理不要（全ノードが一度に利用可能）
 
 #### b) 共通ヘルパーライブラリの強化
 
@@ -250,10 +272,7 @@ warning: Rule 'foo' is defined in multiple plugins
     "description": "日本語助詞の重複を検出するルール",
     "repository": "https://github.com/simorgh3196/texide-rule-no-doubled-joshi",
     "license": "MIT",
-    "authors": ["Author Name <email@example.com>"],
-    "fixable": true,
-    "node_types": ["Str"],
-    "isolation_level": "block"
+    "authors": ["Author Name <email@example.com>"]
   },
   "artifacts": {
     "wasm": "https://github.com/.../releases/download/v{version}/rule.wasm"
@@ -266,6 +285,8 @@ warning: Rule 'foo' is defined in multiple plugins
   }
 }
 ```
+
+> **Note**: Runtime configuration (`fixable`, `node_types`, `cache_scope`, `exclude_contexts`) is defined in WASM via `get_manifest()`. See [WASM Interface Specification](./wasm-interface.md#rulemanifest).
 
 **DXの利点:**
 - `$schema` 指定でVSCode等の補完・バリデーションが自動で効く

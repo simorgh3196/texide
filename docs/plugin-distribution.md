@@ -296,10 +296,7 @@ To distribute a plugin, place `texide-rule.json` in your repository. Using JSON 
     "repository": "https://github.com/simorgh3196/texide-rule-no-doubled-joshi",
     "license": "MIT",
     "authors": ["Tomoya Hayakawa <simorgh3196@gmail.com>"],
-    "keywords": ["japanese", "grammar", "joshi"],
-    "fixable": true,
-    "node_types": ["Str"],
-    "isolation_level": "block"
+    "keywords": ["japanese", "grammar", "joshi"]
   },
   "artifacts": {
     "wasm": "https://github.com/simorgh3196/texide-rule-no-doubled-joshi/releases/download/v{version}/no_doubled_joshi.wasm"
@@ -338,13 +335,7 @@ To distribute a plugin, place `texide-rule.json` in your repository. Using JSON 
 | `authors` | | Author list |
 | `keywords` | | Search keywords |
 
-**[rule] section**
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `fixable` | `false` | Whether auto-fix is supported |
-| `node_types` | `[]` | Target node types |
-| `isolation_level` | `"global"` | `"global"` or `"block"` |
+> **Note**: Runtime configuration (`fixable`, `node_types`, `cache_scope`, `exclude_contexts`) is defined in WASM via `get_manifest()`. See [WASM Interface Specification](./wasm-interface.md#rulemanifest).
 
 **[artifacts] section**
 
