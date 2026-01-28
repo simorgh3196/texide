@@ -59,7 +59,7 @@ Texide includes a Language Server Protocol (LSP) implementation for real-time di
 texide lsp start
 ```
 
-The server automatically loads configuration from `.texide.jsonc` or similar files in the workspace root.
+The server automatically loads configuration from `.texide.jsonc` or `texide.json` in the workspace root.
 
 ## Configuration
 
