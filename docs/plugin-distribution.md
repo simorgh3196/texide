@@ -114,10 +114,13 @@ Generated `.texide.jsonc`:
 |--------|---------|-------------|
 | GitHub | `"owner/repo"` | Fetch latest release |
 | GitHub + version | `"owner/repo@1.0.0"` | Fetch specific version (pinned) |
-| URL | `{ "url": "https://.../texide-rule.json" }` | Manifest URL |
-| Path | `{ "path": "./local/texide-rule.json" }` | Local manifest path |
+| GitHub + alias | `{ "github": "owner/repo", "as": "alias" }` | With explicit alias |
+| URL | `{ "url": "https://...", "as": "alias" }` | Manifest URL (`as` required) |
+| Path | `{ "path": "./local/...", "as": "alias" }` | Local manifest (`as` required) |
 
 > **Note**: Version range specification (e.g., `^1.0`, `~1.0`) is not supported. Use exact versions for reproducibility.
+>
+> **Note**: For URL and Path formats, the `as` field is required because the owner cannot be determined from the source.
 
 ### 1.3 Plugin Management Commands
 
@@ -249,12 +252,12 @@ Texide supports two configuration file formats. When both exist, `.texide.jsonc`
 1. `.texide.jsonc` (default, supports comments)
 2. `.texide.json`
 
-#### Rule Identifier and Namespace
+#### Rule Identifier and Alias
 
 Each rule has two forms of identification:
 
 - **Short name**: Defined in manifest's `name` field (e.g., `no-todo`, `sentence-length`)
-- **Full identifier**: Automatically constructed as `{owner}/{name}` (e.g., `simorgh3196/no-todo`)
+- **Alias**: Explicitly specified via `as` field, or auto-constructed as `{owner}/{name}` for GitHub sources
 
 The manifest only requires the short name:
 ```json
@@ -266,13 +269,11 @@ The manifest only requires the short name:
 }
 ```
 
-Texide automatically constructs the full identifier from the repository owner and the rule name.
+For GitHub sources, Texide automatically constructs the identifier from the repository owner and the rule name. For URL/Path sources, an explicit alias via `as` is required.
 
-#### Same-Name Rule Resolution
+#### Using Aliases
 
-When multiple rules have the same short name, the `options` key resolution works as follows:
-
-**No conflict** - Short name can be used:
+**Basic usage** - No alias needed for simple cases:
 ```json
 {
   "rules": [
@@ -280,13 +281,49 @@ When multiple rules have the same short name, the `options` key resolution works
     "alice/texide-rule-sentence-length"
   ],
   "options": {
-    "no-todo": true,              // OK: no conflict
-    "sentence-length": { "max": 100 }  // OK: no conflict
+    "no-todo": true,
+    "sentence-length": { "max": 100 }
   }
 }
 ```
 
-**With conflict** - Full identifier required:
+**With explicit alias** - Use `as` to specify a custom identifier:
+```json
+{
+  "rules": [
+    { "github": "alice/texide-rule-sentence-length", "as": "alice-sl" },
+    { "path": "./local-rules/my-rule", "as": "my-local" },
+    { "url": "https://example.com/texide-rule.json", "as": "external" }
+  ],
+  "options": {
+    "alice-sl": { "max": 100 },
+    "my-local": { "enabled": true },
+    "external": { "strict": false }
+  }
+}
+```
+
+> **Note**: For `path` and `url` sources, the `as` field is **required** because the owner cannot be determined.
+
+#### Same-Name Rule Resolution
+
+When multiple rules have the same short name, use explicit aliases to disambiguate:
+
+**With conflict** - Use `as` to assign unique aliases:
+```json
+{
+  "rules": [
+    { "github": "alice/texide-rule-sentence-length", "as": "alice-sl" },
+    { "github": "bob/texide-rule-sentence-length", "as": "bob-sl" }
+  ],
+  "options": {
+    "alice-sl": { "max": 100 },
+    "bob-sl": { "max": 80 }
+  }
+}
+```
+
+Alternatively, full identifiers (`{owner}/{name}`) can be used without `as`:
 ```json
 {
   "rules": [
@@ -294,22 +331,23 @@ When multiple rules have the same short name, the `options` key resolution works
     "bob/texide-rule-sentence-length"
   ],
   "options": {
-    "alice/sentence-length": { "max": 100 },  // Full identifier required
-    "bob/sentence-length": { "max": 80 }      // Full identifier required
+    "alice/sentence-length": { "max": 100 },
+    "bob/sentence-length": { "max": 80 }
   }
 }
 ```
 
-**Behavior:**
-1. **No conflict**: Short name resolves to the single matching rule
-2. **With conflict**: Short name in `options` causes an error; full identifier (`{owner}/{name}`) is required
+**Resolution priority:**
+1. If `as` is specified, use that alias
+2. If no conflict exists, use the short name
+3. If conflict exists and no `as`, use `{owner}/{name}` format
 
-When a conflict is detected, Texide displays a message:
+When a conflict is detected without explicit aliases, Texide displays a message:
 ```
 ⚠️ Rule name "sentence-length" is ambiguous (multiple plugins provide this rule):
    - alice/sentence-length
    - bob/sentence-length
-   Use full identifier in options (e.g., "alice/sentence-length": {...})
+   Use 'as' to specify an alias, or use full identifier in options.
 ```
 
 ---

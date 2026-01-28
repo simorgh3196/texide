@@ -216,17 +216,22 @@ pub fn find_all_matches(text: &str, pattern: &str) -> Vec<Match>; // パター�
     // 形式2: GitHub形式 + 固定バージョン
     "simorgh3196/texide-rule-sentence-length@1.2.0",
 
-    // 形式3: URL指定（マニフェストを指定）
-    { "url": "https://example.com/rules/texide-rule.json" },
+    // 形式3: GitHub形式 + エイリアス
+    { "github": "alice/texide-rule-foo", "as": "alice-foo" },
 
-    // 形式4: ローカルパス（マニフェストを指定、開発用）
-    { "path": "./my-rules/texide-rule.json" }
+    // 形式4: URL指定（asは必須）
+    { "url": "https://example.com/rules/texide-rule.json", "as": "external" },
+
+    // 形式5: ローカルパス（asは必須、開発用）
+    { "path": "./my-rules/texide-rule.json", "as": "my-local" }
   ]
 }
 ```
 
 > [!NOTE]
 > バージョン範囲指定（`^1.0`, `~1.0`）は採用しない。固定バージョン指定により、設定ファイル自体が再現性を保証する。
+>
+> `url` および `path` 形式では、ownerを特定できないため `as` フィールドが必須。
 
 **設定ファイルの優先順位:**
 
@@ -234,14 +239,31 @@ pub fn find_all_matches(text: &str, pattern: &str) -> Vec<Match>; // パター�
 1. `.texide.jsonc`（デフォルト、コメント可）
 2. `.texide.json`
 
-**ルール識別子と名前空間:**
+**ルール識別子とエイリアス:**
 
 - **短縮名**: マニフェストの `name` フィールド（例: `no-todo`, `sentence-length`）
-- **完全識別子**: `{owner}/{name}` で自動構築（例: `simorgh3196/no-todo`）
+- **エイリアス**: `as` で明示指定、またはGitHubソースの場合は `{owner}/{name}` で自動構築
 
-**同名ルールの解決:**
+**エイリアスの使用:**
 
-競合がない場合は短縮名、競合がある場合は完全識別子を `options` で使用:
+基本的には短縮名を使用、競合時や明示的に指定したい場合は `as` を使用:
+
+```json
+{
+  "rules": [
+    { "github": "alice/texide-rule-sentence-length", "as": "alice-sl" },
+    { "github": "bob/texide-rule-sentence-length", "as": "bob-sl" },
+    { "path": "./local-rules/my-rule", "as": "my-local" }
+  ],
+  "options": {
+    "alice-sl": { "max": 100 },
+    "bob-sl": { "max": 80 },
+    "my-local": { "enabled": true }
+  }
+}
+```
+
+`as` を使用しない場合は、完全識別子 `{owner}/{name}` を `options` で使用:
 
 ```json
 {
@@ -250,18 +272,23 @@ pub fn find_all_matches(text: &str, pattern: &str) -> Vec<Match>; // パター�
     "bob/texide-rule-sentence-length"
   ],
   "options": {
-    "alice/sentence-length": { "max": 100 },  // 競合あり：完全識別子必須
+    "alice/sentence-length": { "max": 100 },
     "bob/sentence-length": { "max": 80 }
   }
 }
 ```
+
+**解決優先順位:**
+1. `as` が指定されている場合はそのエイリアスを使用
+2. 競合がなければ短縮名を使用
+3. 競合があり `as` もない場合は `{owner}/{name}` 形式を使用
 
 競合時のメッセージ:
 ```text
 ⚠️ Rule name "sentence-length" is ambiguous:
    - alice/sentence-length
    - bob/sentence-length
-   Use full identifier in options.
+   Use 'as' to specify an alias, or use full identifier in options.
 ```
 
 ### 1.6.2 プラグインスペックファイル（texide-rule.json）
