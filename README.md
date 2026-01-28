@@ -56,10 +56,10 @@ Texide includes a Language Server Protocol (LSP) implementation for real-time di
 
 ```bash
 # Start the LSP server
-texide lsp start
+texide lsp
 ```
 
-The server automatically loads configuration from `.texide.jsonc` or `texide.json` in the workspace root.
+The server automatically loads configuration from `.texide.jsonc` or `.texide.json` in the workspace root.
 
 ## Configuration
 
