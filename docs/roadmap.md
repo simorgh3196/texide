@@ -242,7 +242,7 @@ pub fn find_all_matches(text: &str, pattern: &str) -> Vec<Match>; // パター�
 **ルール識別子とエイリアス:**
 
 - **短縮名**: マニフェストの `name` フィールド（例: `no-todo`, `sentence-length`）
-- **エイリアス**: `as` で明示指定、またはGitHubソースの場合は `{owner}/{name}` で自動構築
+- **エイリアス**: `as` で明示指定
 
 **エイリアスの使用:**
 
@@ -263,32 +263,17 @@ pub fn find_all_matches(text: &str, pattern: &str) -> Vec<Match>; // パター�
 }
 ```
 
-`as` を使用しない場合は、完全識別子 `{owner}/{name}` を `options` で使用:
-
-```json
-{
-  "rules": [
-    "alice/texide-rule-sentence-length",
-    "bob/texide-rule-sentence-length"
-  ],
-  "options": {
-    "alice/sentence-length": { "max": 100 },
-    "bob/sentence-length": { "max": 80 }
-  }
-}
-```
-
 **解決優先順位:**
 1. `as` が指定されている場合はそのエイリアスを使用
 2. 競合がなければ短縮名を使用
-3. 競合があり `as` もない場合は `{owner}/{name}` 形式を使用
+3. 競合があり `as` もない場合は**エラー**
 
-競合時のメッセージ:
+競合時のエラーメッセージ:
 ```text
-⚠️ Rule name "sentence-length" is ambiguous:
-   - alice/sentence-length
-   - bob/sentence-length
-   Use 'as' to specify an alias, or use full identifier in options.
+Error: Rule name "sentence-length" is ambiguous:
+   - alice/texide-rule-sentence-length
+   - bob/texide-rule-sentence-length
+   Use 'as' to specify unique aliases for each rule.
 ```
 
 ### 1.6.2 プラグインスペックファイル（texide-rule.json）

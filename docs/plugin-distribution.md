@@ -307,7 +307,7 @@ For GitHub sources, Texide automatically constructs the identifier from the repo
 
 #### Same-Name Rule Resolution
 
-When multiple rules have the same short name, use explicit aliases to disambiguate:
+When multiple rules have the same short name, you **must** use explicit aliases to disambiguate. Texide will raise an error if conflicting rules are not aliased.
 
 **With conflict** - Use `as` to assign unique aliases:
 ```json
@@ -323,31 +323,17 @@ When multiple rules have the same short name, use explicit aliases to disambigua
 }
 ```
 
-Alternatively, full identifiers (`{owner}/{name}`) can be used without `as`:
-```json
-{
-  "rules": [
-    "alice/texide-rule-sentence-length",
-    "bob/texide-rule-sentence-length"
-  ],
-  "options": {
-    "alice/sentence-length": { "max": 100 },
-    "bob/sentence-length": { "max": 80 }
-  }
-}
-```
-
 **Resolution priority:**
 1. If `as` is specified, use that alias
 2. If no conflict exists, use the short name
-3. If conflict exists and no `as`, use `{owner}/{name}` format
+3. If conflict exists and no `as`, **raise an error**
 
-When a conflict is detected without explicit aliases, Texide displays a message:
+When a conflict is detected without explicit aliases, Texide raises an error:
 ```
-⚠️ Rule name "sentence-length" is ambiguous (multiple plugins provide this rule):
-   - alice/sentence-length
-   - bob/sentence-length
-   Use 'as' to specify an alias, or use full identifier in options.
+Error: Rule name "sentence-length" is ambiguous (multiple plugins provide this rule):
+   - alice/texide-rule-sentence-length
+   - bob/texide-rule-sentence-length
+   Use 'as' to specify unique aliases for each rule.
 ```
 
 ---
