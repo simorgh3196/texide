@@ -192,7 +192,7 @@ pub fn find_all_matches(text: &str, pattern: &str) -> Vec<Match>; // パター�
 
 ```json
 {
-  "plugins": [
+  "rules": [
     // 形式1: GitHub形式（最新バージョン）
     "simorgh3196/texide-rule-no-doubled-joshi",
 
@@ -219,11 +219,11 @@ pub fn find_all_matches(text: &str, pattern: &str) -> Vec<Match>; // パター�
 
 **同名ルールの競合解決（First wins）:**
 
-複数のプラグインが同じルール名を提供する場合、`plugins` 配列で**先に定義されたものが優先**:
+複数のルールが同じルール名を提供する場合、`rules` 配列で**先に定義されたものが優先**:
 
 ```json
 {
-  "plugins": [
+  "rules": [
     "author-a/texide-rule-foo",  // ← この "foo" ルールが使われる
     "author-b/texide-rule-foo"   // ← 同名なので無視（警告を出力）
   ]
@@ -386,9 +386,9 @@ texide plugin trust remove simorgh3196/texide-rule-foo
 **`plugin install` の動作詳細:**
 
 1. `.texide.jsonc` が存在しない場合、テンプレートから自動生成
-2. `plugins` 配列にプラグイン宣言を追加
-3. プラグインのマニフェスト（`texide-rule.json`）から設定スキーマを取得
-4. `rules` セクションにプラグインの全オプションをデフォルト値で追記
+2. `rules` 配列にルール宣言を追加
+3. ルールのマニフェスト（`texide-rule.json`）から設定スキーマを取得
+4. `options` セクションにルールの全オプションをデフォルト値で追記
 
 ```bash
 # 例: 初回インストール
@@ -400,10 +400,10 @@ texide plugin install simorgh3196/texide-rule-sentence-length
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/simorgh3196/texide/main/schemas/v1/config.json",
-  "plugins": [
+  "rules": [
     "simorgh3196/texide-rule-sentence-length"
   ],
-  "rules": {
+  "options": {
     "sentence-length": {
       "max": 100,
       "min": 0
@@ -420,8 +420,8 @@ texide plugin install simorgh3196/texide-rule-sentence-length
 ### 1.6.6 設定ファイルスキーマ
 
 `.texide.jsonc` 用のJSON Schema（`schemas/v1/config.json`）:
-- 基本フィールド（`plugins`, `rules`, `plugin_security`等）の補完・バリデーション
-- `rules` セクションは `additionalProperties: true` でプラグイン固有オプションを許容
+- 基本フィールド（`rules`, `options`, `security`等）の補完・バリデーション
+- `options` セクションは `additionalProperties: true` でルール固有オプションを許容
 - 将来的にLSPで動的補完に移行
 
 ### 1.6.7 新規クレート構成

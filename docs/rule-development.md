@@ -123,8 +123,8 @@ cp target/wasm32-wasip1/release/texide_rule_my_rule.wasm ~/.texide/rules/
 # Configure in .texide.jsonc
 cat > .texide.jsonc << 'EOF'
 {
-  "plugins": ["~/.texide/rules/texide_rule_my_rule.wasm"],
-  "rules": {
+  "rules": ["~/.texide/rules/texide_rule_my_rule.wasm"],
+  "options": {
     "my-rule": true
   }
 }
@@ -285,7 +285,7 @@ In `.texide.jsonc`:
 
 ```json
 {
-  "rules": {
+  "options": {
     "my-rule": true,
     "my-rule": "error",
     "my-rule": {
@@ -495,7 +495,7 @@ Share the `.wasm` file directly. Users add to `.texide.jsonc`:
 
 ```json
 {
-  "plugins": ["./rules/my-rule.wasm"]
+  "rules": ["./rules/my-rule.wasm"]
 }
 ```
 

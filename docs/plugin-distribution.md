@@ -66,9 +66,9 @@ texide plugin install https://example.com/rules/texide-rule.json
 **What `plugin install` Does:**
 
 1. If `.texide.jsonc` doesn't exist, creates it from template with JSON Schema reference
-2. Adds plugin declaration to the `plugins` array
-3. Retrieves configuration schema from the plugin's manifest (`texide-rule.json`)
-4. Adds all plugin options with default values to the `rules` section
+2. Adds rule declaration to the `rules` array
+3. Retrieves configuration schema from the rule's manifest (`texide-rule.json`)
+4. Adds all rule options with default values to the `options` section
 
 Example - first install:
 ```bash
@@ -79,10 +79,10 @@ Generated `.texide.jsonc`:
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/simorgh3196/texide/main/schemas/v1/config.json",
-  "plugins": [
+  "rules": [
     "simorgh3196/texide-rule-sentence-length"
   ],
-  "rules": {
+  "options": {
     "sentence-length": {
       "max": 100,
       "min": 0
@@ -97,11 +97,11 @@ Generated `.texide.jsonc`:
 
 ```json
 {
-  "plugins": [
+  "rules": [
     "simorgh3196/texide-rule-no-doubled-joshi",
     "simorgh3196/texide-rule-sentence-length@1.2.0"
   ],
-  "rules": {
+  "options": {
     "no-doubled-joshi": true,
     "sentence-length": { "max": 100 }
   }
@@ -177,7 +177,7 @@ Configure security policy in `.texide.jsonc`:
 
 ```json
 {
-  "plugin_security": {
+  "security": {
     "confirm_install": true,
     "trusted_repositories": [
       "simorgh3196/texide-rule-no-doubled-joshi",
@@ -251,16 +251,16 @@ Texide supports two configuration file formats. When both exist, `.texide.jsonc`
 
 #### Same-Name Rule Conflict Resolution (First Wins)
 
-When multiple plugins provide rules with the same name, the **first defined plugin in the `plugins` array takes priority**.
+When multiple rules with the same name are specified, the **first defined rule in the `rules` array takes priority**.
 
 Example:
 ```json
 {
-  "plugins": [
+  "rules": [
     "alice/texide-rule-my-lint",      // ← This "my-lint" rule takes priority
     "bob/texide-rule-my-lint"         // ← Ignored (same name)
   ],
-  "rules": {
+  "options": {
     "my-lint": true
   }
 }

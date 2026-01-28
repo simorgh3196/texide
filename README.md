@@ -71,29 +71,29 @@ Built WASM files are located at `rules/target/wasm32-wasip1/release/`.
 
 ### 2. Create configuration
 
-Create `.texide.json` in your project root:
+Create `.texide.jsonc` in your project root:
 
 ```json
 {
-  "rules": {
-    "no-todo": true,
-    "sentence-length": { "max": 100 },
-    "no-doubled-joshi": true
-  },
-  "plugins": [
+  "rules": [
     "texide_rule_no_todo",
     "texide_rule_sentence_length",
     "texide_rule_no_doubled_joshi"
-  ]
+  ],
+  "options": {
+    "no-todo": true,
+    "sentence-length": { "max": 100 },
+    "no-doubled-joshi": true
+  }
 }
 ```
 
-#### Plugin Loading Logic
+#### Rule Loading Logic
 
-Plugins are resolved by name. `texide` searches for `<name>.wasm` in:
+Rules are resolved by name. `texide` searches for `<name>.wasm` in:
 
-1. `.texide/plugins/` (in your project)
-2. `~/.texide/plugins/` (in your user directory)
+1. `.texide/rules/` (in your project)
+2. `~/.texide/rules/` (in your user directory)
 
 ### 3. Run lint with performance timings
 
@@ -124,23 +124,23 @@ Texide includes a Language Server Protocol (LSP) implementation for real-time di
 texide-lsp
 ```
 
-The server automatically loads configuration from `.texide.json` or similar files in the workspace root.
+The server automatically loads configuration from `.texide.jsonc` or similar files in the workspace root.
 
 ## Configuration
 
-Create `.texiderc.json` in your project root:
+Create `.texide.jsonc` in your project root:
 
 ```json
 {
-  "rules": {
+  "rules": [
+    "my-rule"
+  ],
+  "options": {
     "no-todo": true,
     "max-lines": {
       "max": 300
     }
   },
-  "plugins": [
-    "my-rule"
-  ],
   "include": ["**/*.md", "**/*.txt"],
   "exclude": ["**/node_modules/**"],
   "cache": true,
@@ -153,8 +153,8 @@ Create `.texiderc.json` in your project root:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `rules` | object | `{}` | Rule configurations (name -> enabled/options) |
-| `plugins` | string[] | `[]` | List of plugin names to load |
+| `rules` | string[] | `[]` | List of rule names to load |
+| `options` | object | `{}` | Rule configurations (name -> enabled/options) |
 | `include` | string[] | `[]` | File patterns to include |
 | `exclude` | string[] | `[]` | File patterns to exclude |
 | `cache` | boolean | `true` | Enable caching for faster re-lints |
