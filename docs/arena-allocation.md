@@ -87,7 +87,7 @@ fn traditional_approach() {
 ```rust
 // Arena-based approach
 fn arena_approach() {
-    let arena = Arena::new();
+    let arena = AstArena::new();
 
     let node1 = arena.alloc(Node::new("Hello"));
     let node2 = arena.alloc(Node::new("World"));
@@ -420,10 +420,10 @@ the duration of linting.
 
 - **[Oxc](https://oxc.rs/)**: JavaScript compiler toolkit using `bumpalo` for
   AST allocation
-- **[Biome](https://biomejs.dev/)**: JavaScript toolchain with custom arena
-  implementation
-- **[Rust Analyzer](https://rust-analyzer.github.io/)**: Uses arena allocation
-  for syntax trees
+- **[Biome](https://biomejs.dev/)**: JavaScript toolchain using NodeCache-based
+  interning + generational cache
+- **[Rust Analyzer](https://rust-analyzer.github.io/)**: Uses rowan red/green
+  tree design (structure sharing/RC)
 - **[salsa](https://github.com/salsa-rs/salsa)**: Incremental computation
   framework with arena support
 
