@@ -12,9 +12,10 @@ build:
 	cargo build --workspace
 
 # Run all tests (host + PDK)
+TARGET ?=
 test:
 	cargo test --workspace
-	cd rules && cargo test --target aarch64-apple-darwin -p texide-rule-pdk
+	cd rules && cargo test $(if $(TARGET),--target $(TARGET),) -p texide-rule-pdk
 
 # Run tests with output
 test-verbose:
