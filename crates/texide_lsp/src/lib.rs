@@ -34,10 +34,18 @@ impl Backend {
     /// Creates a new backend with the given client.
     fn new(client: Client) -> Self {
         // Initialize linter with default config
-        // Initialize linter with default config
         // Real config will be loaded during `initialize` if available
         let config = LinterConfig::new();
-        let linter = Linter::new(config).expect("Failed to initialize linter");
+        let linter = match Linter::new(config) {
+            Ok(l) => l,
+            Err(e) => {
+                // Log error and create a no-op linter or handle gracefully
+                // For now, we'll try with an empty config
+                tracing::error!("Failed to initialize linter: {}", e);
+                Linter::new(LinterConfig::new())
+                    .unwrap_or_else(|_| panic!("Critical: Cannot create even a default linter"))
+            }
+        };
 
         Self {
             client,
