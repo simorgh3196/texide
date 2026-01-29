@@ -423,6 +423,128 @@ pub fn get_depth(request: &LintRequest) -> u32 {
         .unwrap_or(0)
 }
 
+// ============================================================================
+// Text Processing Helpers
+// ============================================================================
+
+/// A sentence found in text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sentence {
+    /// Byte start offset in source (relative to the text start).
+    pub start: usize,
+    /// Byte end offset in source (relative to the text start).
+    pub end: usize,
+    /// The sentence text.
+    pub text: String,
+    /// Character count of the sentence.
+    pub char_count: usize,
+}
+
+/// Splits text into sentences.
+///
+/// This handles common sentence delimiters including:
+/// - English/European: ., !, ?
+/// - Japanese: 。, ！, ？
+pub fn get_sentences(text: &str) -> Vec<Sentence> {
+    let delimiters = ['.', '!', '?', '。', '！', '？'];
+    let mut sentences = Vec::new();
+    let mut current_start = 0;
+
+    // Find sentence boundaries
+    // We iterate through chars to handle multibyte chars correctly
+    let mut indices = text.char_indices().peekable();
+
+    while let Some((_idx, c)) = indices.next() {
+        if delimiters.contains(&c) {
+            // Found a delimiter, this ends the current sentence
+            // The delimiter is included in the sentence
+            let next_char_idx = indices.peek().map(|(i, _)| *i).unwrap_or(text.len());
+            let end = next_char_idx;
+
+            let sentence_text = &text[current_start..end];
+            let trimmed = sentence_text.trim();
+
+            if !trimmed.is_empty() {
+                sentences.push(Sentence {
+                    start: current_start,
+                    end,
+                    text: trimmed.to_string(),
+                    char_count: trimmed.chars().count(), // Count characters, not bytes
+                });
+            }
+
+            current_start = end;
+        }
+    }
+
+    // Handle remaining text
+    if current_start < text.len() {
+        let remaining = &text[current_start..];
+        let trimmed = remaining.trim();
+        if !trimmed.is_empty() {
+            sentences.push(Sentence {
+                start: current_start,
+                end: text.len(),
+                text: trimmed.to_string(),
+                char_count: trimmed.chars().count(),
+            });
+        }
+    }
+
+    sentences
+}
+
+/// A match found in text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextMatch {
+    /// Byte start offset (relative to the text start).
+    pub start: usize,
+    /// Byte end offset (relative to the text start).
+    pub end: usize,
+    /// The text that matched.
+    pub matched_text: String,
+}
+
+/// Finds all occurrences of patterns in text.
+pub fn find_matches(text: &str, patterns: &[String], case_sensitive: bool) -> Vec<TextMatch> {
+    let mut matches = Vec::new();
+
+    for pattern in patterns {
+        let text_to_search = if case_sensitive {
+            text.to_string()
+        } else {
+            text.to_uppercase()
+        };
+
+        let pattern_to_search = if case_sensitive {
+            pattern.to_string()
+        } else {
+            pattern.to_uppercase()
+        };
+
+        let mut search_start = 0;
+        while let Some(pos) = text_to_search[search_start..].find(&pattern_to_search) {
+            let abs_pos = search_start + pos;
+            let end_pos = abs_pos + pattern.len(); // Byte length of pattern
+
+            // Get original text at this position (crucial for case-insensitive matches)
+            let original_matched = &text[abs_pos..end_pos];
+
+            matches.push(TextMatch {
+                start: abs_pos,
+                end: end_pos,
+                matched_text: original_matched.to_string(),
+            });
+
+            search_start = end_pos;
+        }
+    }
+
+    // Sort by start position
+    matches.sort_by_key(|m| m.start);
+    matches
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

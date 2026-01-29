@@ -474,12 +474,11 @@ impl Linter {
         let enabled_names: HashSet<&str> = enabled_rules.iter().map(|(n, _)| *n).collect();
 
         for name in host.loaded_rules() {
-            if enabled_names.contains(name) {
-                if let Some(manifest) = host.get_manifest(name)
-                    && manifest.isolation_level == level
-                {
-                    names.push(name.to_string());
-                }
+            if enabled_names.contains(name)
+                && let Some(manifest) = host.get_manifest(name)
+                && manifest.isolation_level == level
+            {
+                names.push(name.to_string());
             }
         }
         names
