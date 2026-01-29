@@ -157,7 +157,7 @@ impl Backend {
         let mut symbols = Vec::new();
 
         // We only care about specific block elements for the outline
-        for child in &node.children {
+        for child in node.children.iter() {
             let symbol_kind = match child.node_type {
                 // H1 -> File/Class, H2 -> Method/Module. Using String for now.
                 NodeType::Header => SymbolKind::STRING,
@@ -212,7 +212,7 @@ impl Backend {
                 out.push_str(&source[start..end]);
             }
         }
-        for child in &node.children {
+        for child in node.children.iter() {
             self.collect_text(child, out, source);
         }
     }
@@ -262,71 +262,6 @@ impl Backend {
             }
         }
     }
-
-    /// Extracts document symbols from AST.
-    fn extract_symbols(&self, node: &TxtNode, text: &str) -> Vec<DocumentSymbol> {
-        let mut symbols = Vec::new();
-
-        // We only care about specific block elements for the outline
-        for child in &node.children {
-            let symbol_kind = match child.node_type {
-                // H1 -> File/Class, H2 -> Method/Module. Using String for now.
-                NodeType::Header => SymbolKind::STRING,
-                NodeType::CodeBlock => SymbolKind::FUNCTION,
-                _ => continue,
-            };
-
-            // Extract details (e.g., header text)
-            let mut detail = String::new();
-            if child.node_type == NodeType::Header {
-                // Collect text children
-                self.collect_text(child, &mut detail, text);
-            } else if child.node_type == NodeType::CodeBlock {
-                detail = "Code Block".to_string();
-            }
-
-            // Convert range
-            if let Some(range) =
-                self.offset_to_range(child.span.start as usize, child.span.end as usize, text)
-            {
-                // For selection range, ideally we want just the header text, but full range is fine for now
-                let selection_range = range;
-
-                #[allow(deprecated)]
-                let symbol = DocumentSymbol {
-                    name: if detail.is_empty() {
-                        format!("{}", child.node_type)
-                    } else {
-                        detail
-                    },
-                    detail: None,
-                    kind: symbol_kind,
-                    tags: None,
-                    deprecated: None,
-                    range,
-                    selection_range,
-                    children: None, // Flat list for now
-                };
-
-                symbols.push(symbol);
-            }
-        }
-
-        symbols
-    }
-
-    fn collect_text(&self, node: &TxtNode, out: &mut String, source: &str) {
-        if node.node_type == NodeType::Str {
-            let start = node.span.start as usize;
-            let end = node.span.end as usize;
-            if start <= end && end <= source.len() {
-                out.push_str(&source[start..end]);
-            }
-        }
-        for child in &node.children {
-            self.collect_text(child, out, source);
-        }
-    }
 }
 
 #[tower_lsp::async_trait]
@@ -337,8 +272,15 @@ impl LanguageServer for Backend {
         if let Some(path) = params.root_uri.and_then(|u| u.to_file_path().ok()) {
             // Store workspace root
             {
-                let mut root = self.workspace_root.write().unwrap();
-                *root = Some(path);
+                match self.workspace_root.write() {
+                    Ok(mut root) => {
+                        *root = Some(path);
+                    }
+                    Err(e) => {
+                        error!("Workspace root lock poisoned: {}", e);
+                        return Ok(InitializeResult::default());
+                    }
+                }
             }
 
             // Initial config load
@@ -359,7 +301,7 @@ impl LanguageServer for Backend {
                 )),
                 // Code action support for auto-fix
                 code_action_provider: Some(CodeActionProviderCapability::Options(
-                    CodeActionProviderOptions {
+                    CodeActionOptions {
                         code_action_kinds: Some(vec![
                             CodeActionKind::QUICKFIX,
                             CodeActionKind::SOURCE_FIX_ALL,
@@ -502,89 +444,82 @@ impl LanguageServer for Backend {
         let mut actions = Vec::new();
 
         // Handle SourceFixAll
-        if let Some(only) = &params.context.only {
-            if only.contains(&CodeActionKind::SOURCE_FIX_ALL) {
-                let mut changes = HashMap::new();
-                let mut edits = Vec::new();
+        if let Some(only) = &params.context.only
+            && only.contains(&CodeActionKind::SOURCE_FIX_ALL)
+        {
+            let mut changes = HashMap::new();
+            let mut edits = Vec::new();
 
-                // Apply all available fixes
-                // We need to be careful about overlapping ranges.
-                // Simple approach: Sort by position (descending) and apply.
-                // Ideally, we should use texide_core::fixer, but here we construct TextEdits.
+            // Apply all available fixes
+            // We need to be careful about overlapping ranges.
+            // Simple approach: Sort by position (descending) and apply.
+            // Ideally, we should use texide_core::fixer, but here we construct TextEdits.
 
-                let mut fixable_diags: Vec<_> = diagnostics
-                    .into_iter()
-                    .filter(|d| d.fix.is_some())
-                    .collect();
+            let mut fixable_diags: Vec<_> = diagnostics
+                .into_iter()
+                .filter(|d| d.fix.is_some())
+                .collect();
 
-                // Sort descending by start position to avoid offset shifting issues if applied sequentially
-                // But LSP TextEdits are applied simultaneously by the client, so standard order often doesn't matter
-                // IF ranges don't overlap. If they overlap, it's a conflict.
-                // We assume rule-generated fixes don't usually overlap for different rules, OR we take one.
+            // Sort descending by start position to avoid offset shifting issues if applied sequentially
+            // But LSP TextEdits are applied simultaneously by the client, so standard order often doesn't matter
+            // IF ranges don't overlap. If they overlap, it's a conflict.
+            // We assume rule-generated fixes don't usually overlap for different rules, OR we take one.
 
-                fixable_diags.sort_by(|a, b| b.span.start.cmp(&a.span.start));
+            fixable_diags.sort_by(|a, b| b.span.start.cmp(&a.span.start));
 
-                for diag in fixable_diags {
-                    if let Some(fix) = diag.fix {
-                        if let Some(range) = self.offset_to_range(
-                            fix.span.start as usize,
-                            fix.span.end as usize,
-                            &text,
-                        ) {
-                            edits.push(TextEdit {
-                                range,
-                                new_text: fix.text,
-                            });
-                        }
-                    }
+            for diag in fixable_diags {
+                if let Some(fix) = diag.fix
+                    && let Some(range) =
+                        self.offset_to_range(fix.span.start as usize, fix.span.end as usize, &text)
+                {
+                    edits.push(TextEdit {
+                        range,
+                        new_text: fix.text,
+                    });
                 }
+            }
 
-                if !edits.is_empty() {
-                    changes.insert(uri.clone(), edits);
+            if !edits.is_empty() {
+                changes.insert(uri.clone(), edits);
 
-                    let action = CodeAction {
-                        title: "Fix all Texide issues".to_string(),
-                        kind: Some(CodeActionKind::SOURCE_FIX_ALL),
-                        edit: Some(WorkspaceEdit {
-                            changes: Some(changes),
-                            ..Default::default()
-                        }),
+                let action = CodeAction {
+                    title: "Fix all Texide issues".to_string(),
+                    kind: Some(CodeActionKind::SOURCE_FIX_ALL),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
                         ..Default::default()
-                    };
-                    actions.push(CodeActionOrCommand::CodeAction(action));
-                }
+                    }),
+                    ..Default::default()
+                };
+                actions.push(CodeActionOrCommand::CodeAction(action));
             }
         }
 
         for diag in self.lint_text(&text, &path) {
             // Re-lint is expensive but correct for fresh context
-            if let Some(fix) = diag.fix {
-                let fix_range =
-                    self.offset_to_range(fix.span.start as usize, fix.span.end as usize, &text);
-
-                if let Some(range) = fix_range {
-                    if self.positions_le(range.start, params.range.end)
-                        && self.positions_le(params.range.start, range.end)
-                    {
-                        let action = CodeAction {
-                            title: format!("Fix: {}", diag.message),
-                            kind: Some(CodeActionKind::QUICKFIX),
-                            diagnostics: None,
-                            edit: Some(WorkspaceEdit {
-                                changes: Some(HashMap::from([(
-                                    uri.clone(),
-                                    vec![TextEdit {
-                                        range,
-                                        new_text: fix.text,
-                                    }],
-                                )])),
-                                ..Default::default()
-                            }),
-                            ..Default::default()
-                        };
-                        actions.push(CodeActionOrCommand::CodeAction(action));
-                    }
-                }
+            if let Some(fix) = diag.fix
+                && let Some(range) =
+                    self.offset_to_range(fix.span.start as usize, fix.span.end as usize, &text)
+                && self.positions_le(range.start, params.range.end)
+                && self.positions_le(params.range.start, range.end)
+            {
+                let action = CodeAction {
+                    title: format!("Fix: {}", diag.message),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: None,
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(HashMap::from([(
+                            uri.clone(),
+                            vec![TextEdit {
+                                range,
+                                new_text: fix.text,
+                            }],
+                        )])),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                };
+                actions.push(CodeActionOrCommand::CodeAction(action));
             }
         }
 
