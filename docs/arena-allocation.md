@@ -383,10 +383,7 @@ struct Resource {
 
 impl Drop for Resource {
     fn drop(&mut self) {
-        // Note: std::fs::File is automatically closed when dropped.
-        // No explicit close() method exists - the file handle is closed
-        // when the File value goes out of scope.
-        std::mem::drop(&mut self.file);
+        let _ = self.file.sync_all();
     }
 }
 
