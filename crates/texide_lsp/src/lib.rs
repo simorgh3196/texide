@@ -23,9 +23,8 @@ struct Backend {
     client: Client,
     /// Document contents cache.
     documents: RwLock<HashMap<Url, String>>,
-    /// Linter configuration.
-    /// Linter instance.
-    linter: RwLock<Linter>,
+    /// Linter instance (may be None if initialization failed).
+    linter: RwLock<Option<Linter>>,
     /// Workspace root path.
     workspace_root: RwLock<Option<std::path::PathBuf>>,
 }
@@ -37,13 +36,15 @@ impl Backend {
         // Real config will be loaded during `initialize` if available
         let config = LinterConfig::new();
         let linter = match Linter::new(config) {
-            Ok(l) => l,
+            Ok(l) => Some(l),
             Err(e) => {
-                // Log error and create a no-op linter or handle gracefully
-                // For now, we'll try with an empty config
-                tracing::error!("Failed to initialize linter: {}", e);
-                Linter::new(LinterConfig::new())
-                    .unwrap_or_else(|_| panic!("Critical: Cannot create even a default linter"))
+                // Log error and set linter to None
+                // The LSP will continue to work but without linting capabilities
+                error!(
+                    "Failed to initialize linter: {}. LSP will run without linting.",
+                    e
+                );
+                None
             }
         };
 
@@ -91,7 +92,16 @@ impl Backend {
             }
         };
 
-        match linter_guard.lint_content(text, path) {
+        // Check if linter is available
+        let linter = match linter_guard.as_ref() {
+            Some(l) => l,
+            None => {
+                debug!("Linter not available, skipping linting");
+                return vec![];
+            }
+        };
+
+        match linter.lint_content(text, path) {
             Ok(diagnostics) => diagnostics,
             Err(e) => {
                 error!("Lint error: {}", e);
@@ -254,10 +264,13 @@ impl Backend {
                         match self.linter.write() {
                             Ok(mut linter_guard) => match Linter::new(config) {
                                 Ok(new_linter) => {
-                                    *linter_guard = new_linter;
+                                    *linter_guard = Some(new_linter);
                                     info!("Linter re-initialized with new config");
                                 }
-                                Err(e) => error!("Failed to create new linter: {}", e),
+                                Err(e) => {
+                                    error!("Failed to create new linter: {}", e);
+                                    *linter_guard = None;
+                                }
                             },
                             Err(e) => error!("Linter lock poisoned: {}", e),
                         }
@@ -469,10 +482,18 @@ impl LanguageServer for Backend {
 
         let mut actions = Vec::new();
 
+        // Calculate which action kinds are requested
+        // If `only` is None, all action kinds are allowed (per LSP spec)
+        let (wants_fix_all, wants_quickfix) = match &params.context.only {
+            Some(only) => (
+                only.contains(&CodeActionKind::SOURCE_FIX_ALL),
+                only.contains(&CodeActionKind::QUICKFIX),
+            ),
+            None => (true, true),
+        };
+
         // Handle SourceFixAll
-        if let Some(only) = &params.context.only
-            && only.contains(&CodeActionKind::SOURCE_FIX_ALL)
-        {
+        if wants_fix_all {
             let mut changes = HashMap::new();
             let mut edits = Vec::new();
 
@@ -520,6 +541,10 @@ impl LanguageServer for Backend {
         }
 
         // Generate QUICKFIX actions for diagnostics in the requested range
+        if !wants_quickfix {
+            return Ok(Some(actions));
+        }
+
         for diag in &diagnostics {
             if let Some(ref fix) = diag.fix
                 && let Some(range) =

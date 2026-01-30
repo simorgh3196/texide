@@ -2848,6 +2848,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "wasmi",
+ "wat",
 ]
 
 [[package]]
