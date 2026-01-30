@@ -1,4 +1,4 @@
-use jsonschema::JSONSchema;
+use jsonschema::Validator;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::OnceLock;
@@ -92,7 +92,7 @@ pub struct TexideCompatibility {
 // Embed the schema
 const RULE_SCHEMA_JSON: &str = include_str!("../../../schemas/v1/rule.json");
 
-static SCHEMA: OnceLock<JSONSchema> = OnceLock::new();
+static SCHEMA: OnceLock<Validator> = OnceLock::new();
 
 /// Validates a manifest JSON string against the schema.
 pub fn validate_manifest(json_str: &str) -> Result<ExternalRuleManifest, ManifestError> {
@@ -103,14 +103,11 @@ pub fn validate_manifest(json_str: &str) -> Result<ExternalRuleManifest, Manifes
     let schema = SCHEMA.get_or_init(|| {
         let schema_json: Value =
             serde_json::from_str(RULE_SCHEMA_JSON).expect("Invalid embedded schema");
-        JSONSchema::compile(&schema_json).expect("Invalid schema compilation")
+        Validator::new(&schema_json).expect("Invalid schema compilation")
     });
 
-    if let Err(errors) = schema.validate(&instance) {
-        let error_msg = errors
-            .map(|e| format!("{} at {}", e, e.instance_path))
-            .collect::<Vec<String>>()
-            .join("; ");
+    if let Err(e) = schema.validate(&instance) {
+        let error_msg = format!("{} at {}", e, e.instance_path());
         return Err(ManifestError::ValidationError(error_msg));
     }
 
