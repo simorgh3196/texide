@@ -8,12 +8,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::LinterError;
 
-use jsonschema::JSONSchema;
+use jsonschema::Validator;
 use std::sync::OnceLock;
 
 // Embed the schema
 const SCHEMA_JSON: &str = include_str!("../../../schemas/v1/config.json");
-static CONFIG_SCHEMA: OnceLock<JSONSchema> = OnceLock::new();
+static CONFIG_SCHEMA: OnceLock<Validator> = OnceLock::new();
 
 /// Configuration for the linter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,14 +162,11 @@ impl LinterConfig {
         let schema = CONFIG_SCHEMA.get_or_init(|| {
             let schema_json: serde_json::Value =
                 serde_json::from_str(SCHEMA_JSON).expect("Invalid embedded config schema");
-            JSONSchema::compile(&schema_json).expect("Invalid config schema compilation")
+            Validator::new(&schema_json).expect("Invalid config schema compilation")
         });
 
-        if let Err(errors) = schema.validate(&value) {
-            let error_msg = errors
-                .map(|e| format!("{} at {}", e, e.instance_path))
-                .collect::<Vec<String>>()
-                .join("; ");
+        if let Err(e) = schema.validate(&value) {
+            let error_msg = format!("{} at {}", e, e.instance_path());
             return Err(LinterError::config(format!(
                 "Config validation failed: {}",
                 error_msg
